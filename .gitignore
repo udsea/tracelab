@@ -1,0 +1,57 @@
+# Dependencies and tool caches
+node_modules/
+.pnpm-store/
+.npm/
+.uv-cache/
+.cache/
+dist/
+.venv/
+venv/
+.tracelab/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage*
+coverage/
+htmlcov/
+__pycache__/
+*.pyc
+*.tsbuildinfo
+*.egg-info/
+
+# Local research data, credentials, and execution logs
+*.duckdb*
+*.sqlite*
+*.eval
+*.log
+/data/
+/logs/
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Generated bundles belong in CI artifacts, never in Git
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/
+build/
+/artifacts/
+*.spec
+*.app/
+*.dmg
+*.exe
+*.msi
+*.AppImage
+*.deb
+*.rpm
+*.zip
+*.tar.gz
+
+# Editor and OS state
+.DS_Store
+.idea/
+*.swp
+*.swo
