@@ -108,11 +108,13 @@ jobs:
           mkdir -p artifacts
           ditto -c -k --sequesterRsrc --keepParent src-tauri/target/release/bundle/macos/TraceLab.app artifacts/TraceLab-macos-arm64.zip
           shasum -a 256 artifacts/TraceLab-macos-arm64.zip > artifacts/SHA256SUMS
-          printf 'commit=%s\nrunner=%s\narch=%s\n' "$GITHUB_SHA" "$RUNNER_OS" "$RUNNER_ARCH" > artifacts/BUILD.txt
-          rustc --version >> artifacts/BUILD.txt
-          uv --version >> artifacts/BUILD.txt
-          node --version >> artifacts/BUILD.txt
-          pnpm --version >> artifacts/BUILD.txt
+          {
+            printf 'commit=%s\nrunner=%s\narch=%s\n' "$GITHUB_SHA" "$RUNNER_OS" "$RUNNER_ARCH"
+            rustc --version
+            uv --version
+            node --version
+            pnpm --version
+          } > artifacts/BUILD.txt
           git diff --exit-code
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: github.event_name != 'pull_request'
