@@ -107,11 +107,12 @@ jobs:
         run: |
           mkdir -p artifacts
           ditto -c -k --sequesterRsrc --keepParent src-tauri/target/release/bundle/macos/TraceLab.app artifacts/TraceLab-macos-arm64.zip
-          shasum -a 256 artifacts/TraceLab-macos-arm64.zip > artifacts/SHA256SUMS
+          (cd artifacts && shasum -a 256 TraceLab-macos-arm64.zip > SHA256SUMS)
           {
             printf 'commit=%s\nrunner=%s\narch=%s\n' "$GITHUB_SHA" "$RUNNER_OS" "$RUNNER_ARCH"
             rustc --version
             uv --version
+            uv run --project backend python --version
             node --version
             pnpm --version
           } > artifacts/BUILD.txt

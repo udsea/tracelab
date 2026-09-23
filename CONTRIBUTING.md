@@ -29,6 +29,8 @@ The **CI** workflow runs on pull requests and pushes to `main`. It validates the
 
 Builds are produced from the checked-out commit and committed lockfiles. Git stores source, never the resulting app. The macOS bundle is currently unsigned and unnotarized; it is a development artifact. Apple distribution signing and notarization require a separate credential-backed release configuration. No automatic release publishing, installer for other platforms, or bit-for-bit reproducibility is claimed.
 
+After downloading and extracting the Actions artifact, run `shasum -a 256 -c SHA256SUMS` alongside its ZIP to verify the download. Keep `BUILD.txt` with any reported packaging problem so the originating commit and tool versions are clear.
+
 Workflow actions use immutable commit hashes, checkout does not retain credentials, the token has read-only contents access, jobs have timeouts, and superseded runs are cancelled. No model/HF secrets are supplied. Dependency updates arrive as Dependabot pull requests and must pass the same checks; they are not automatically merged. Public HF tests are a separate opt-in manual-workflow input.
 
 Configure a `main` ruleset after the repository exists: block force pushes/deletion, require pull requests and the two CI checks, and require conversations to be resolved. CODEOWNERS identifies review ownership; it does not itself enforce approval. Repository/plan-dependent rules must be verified in GitHub rather than assumed from checked-in files.
