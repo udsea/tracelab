@@ -53,6 +53,8 @@ jobs:
           git diff --check
       - name: Validate workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -color
+      - name: Audit JavaScript dependencies
+        run: pnpm audit --audit-level moderate
       - name: Python lint and format
         run: |
           uv run --project backend ruff check backend tests scripts
