@@ -303,17 +303,97 @@ async def test_policy_termination_is_unscored_complete_fork(service, generated, 
 
 
 async def test_multiple_calls_partial_resolution_order(service):
-    _, child, events, _ = await run(
+    _, child, events, seen = await run(
         service,
         [
             output(("a", "read_file", {"path": "a.txt"}), ("b", "bash", {"command": "wrong"})),
             output(text="must not happen"),
         ],
     )
-    assert [e["type"] for e in events[-3:]] == ["tool_call", "tool_result", "tool_call"]
+    assert [e["type"] for e in events[-3:]] == ["tool_call", "tool_call", "tool_result"]
+    call_a, call_b, result_a = events[-3:]
+    assert result_a["parentEventIds"] == [call_a["id"]]
+    assert result_a["tool"]["callId"] == call_a["tool"]["callId"] == "a"
+    assert call_b["tool"]["callId"] == "b"
+    assert result_a["metadata"]["toolResultOrigin"] == "recorded_replay"
+    resolution = service.db.list("tool_resolutions")[0]
+    assert resolution["generatedCallEventId"] == call_a["id"]
+    assert resolution["generatedResultEventId"] == result_a["id"]
+    assert len(service.db.list("tool_resolutions")) == len(seen) == 1
+    assert child["metadata"]["terminationReason"] == "unmatched_tool_call"
+    assert child["metadata"]["executionStatus"] == "policy_terminated"
     assert child["metadata"]["modelSteps"] == 1
     assert child["metadata"]["toolCalls"] == 2
     assert child["metadata"]["replayedToolCalls"] == 1
+
+
+@pytest.mark.parametrize("case", ["recorded", "bound", "stub"])
+async def test_generation_precedes_results_with_call_parent_edges(service, case):
+    spec = {**SPEC, "maxModelSteps": 1}
+    second_command = "synthetic" if case == "stub" else "pytest -q"
+    if case == "bound":
+        spec["maxToolCalls"] = 1
+    elif case == "stub":
+        spec.update(
+            unmatchedToolPolicy="stub",
+            toolStubs=[
+                ToolStub(
+                    id="synthetic-result",
+                    tool_name="bash",
+                    arguments={"command": second_command},
+                    result="researcher observation",
+                ).wire()
+            ],
+        )
+    generated = output(
+        ("a", "read_file", {"path": "a.txt"}),
+        ("b", "bash", {"command": second_command}),
+    )
+    # Mixed blocks must retain normalization's order, not be regrouped by type.
+    generated["choices"][0]["message"]["content"].insert(
+        0, {"type": "text", "text": "Both actions are chosen before either observation."}
+    )
+    normalized, _ = normalize_sample("expected", {"messages": [generated["choices"][0]["message"]]})
+    fork, _, _, seen = await setup(service, [generated, output(text="must not happen")], spec)
+    before = {t: service.db.list(t) for t in ("trajectories", "events", "source_records")}
+    await service.forks.run(Job(kind="fork", name="multiple calls"), fork)
+    child = service.db.get("trajectories", fork.child_trajectory_ids[0])
+    events = await service.load_events(child["id"])
+    suffix = events[1:]
+    assert [(e["type"], e.get("content")) for e in suffix[: len(normalized)]] == [
+        (e.type, e.content) for e in normalized
+    ]
+    result_count = 1 if case == "bound" else 2
+    assert [e["type"] for e in suffix] == [e.type for e in normalized] + [
+        "tool_result"
+    ] * result_count
+    calls = [e for e in suffix if e["type"] == "tool_call"]
+    results = suffix[len(normalized) :]
+    assert [e["tool"]["callId"] for e in calls] == ["a", "b"]
+    assert len(seen) == 1 and len(seen[0]) == result_count
+    for call, result in zip(calls, results, strict=False):
+        assert result["parentEventIds"] == [call["id"]]
+        assert result["tool"]["callId"] == call["tool"]["callId"]
+        resolution = service.db.get("tool_resolutions", result["metadata"]["toolResolutionId"])
+        assert resolution["generatedCallEventId"] == call["id"]
+        assert resolution["generatedResultEventId"] == result["id"]
+        raw = await service.dispatch("events.raw", {"id": result["id"]})
+        assert raw["raw"]["type"] == "tracelab_tool_replay"
+    assert [e["metadata"]["toolResultOrigin"] for e in results] == (
+        ["recorded_replay", "stub"] if case == "stub" else ["recorded_replay"] * result_count
+    )
+    m = child["metadata"]
+    assert (m["modelSteps"], m["toolCalls"], m["replayedToolCalls"], m["stubbedToolCalls"]) == (
+        1,
+        2,
+        2 if case == "recorded" else 1,
+        int(case == "stub"),
+    )
+    assert m["terminationReason"] == ("max_tool_calls" if case == "bound" else "max_model_steps")
+    assert m["executionStatus"] == "bounded"
+    assert m["replayState"] == ("diverged_by_stub" if case == "stub" else "recorded")
+    for table, rows in before.items():
+        assert [service.db.get(table, row["id"]) for row in rows] == rows
 
 
 async def test_stub_permanently_disables_replay(service):

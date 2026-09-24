@@ -112,14 +112,14 @@ class ReplayExecution:
             calls
         )  # All generated calls, including unresolved calls, are observations.
         prior_calls = self.tool_calls - len(calls)
+        # One generation emits every block/call before observing any tool result.
+        # Keep normalized order; append mutates the collected calls to persisted IDs.
         for event in generated:
-            if event.type != "tool_call":
-                self.append(event)
+            self.append(event)
         results = []
-        for ordinal, event in enumerate(calls, 1):
-            call = self.append(event)
+        for ordinal, call in enumerate(calls, 1):
             if self.termination:
-                continue  # Preserve remaining generated calls, but never resolve after termination.
+                break  # All emitted calls are persisted, including unresolved ones.
             if prior_calls + ordinal > self.prepared.execution_spec.max_tool_calls:
                 self.termination = "max_tool_calls"
                 continue

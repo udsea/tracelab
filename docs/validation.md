@@ -1,5 +1,24 @@
 # Validation record
 
+## 2026-09-25 — Post-merge multi-call event ordering hotfix
+
+Based on merged PR #12 (`b99211e`). All normalized events from one model generation now precede its resolved observations. Result parent edges still point to their corresponding calls. No replay policy, model context, frontend or native code changed.
+
+| Command | Observed result |
+| --- | --- |
+| `uv run --project backend pytest tests/test_fork_replay.py -q` | 57 passed in 18.15 s |
+| `uv run --project backend pytest tests -q` | 186 passed, 3 opt-in corpus skips in 99.45 s |
+| `uv run --project backend ruff check backend tests scripts` | All checks passed |
+| `uv run --project backend ruff format --check backend tests scripts` | 99 files already formatted |
+| `pnpm test` | 46 passed in 11 files |
+| `pnpm build` | TypeScript/Vite passed; existing >500 kB chunk advisory remains |
+| `cargo check --locked --manifest-path src-tauri/Cargo.toml` | Passed |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 4 passed, 0 failed |
+
+Python used `UV_CACHE_DIR=/private/tmp/tracelab-uv-cache`; pnpm used the cached 10.30.3 CLI. Focused cases verify normalized mixed-block order, two-call replay success, partial mismatch without another generation, bounds preserving excess calls, mixed replay/stub results, explicit result parents, ToolResolution event IDs, counters and parent/source immutability. The broad suite includes existing comparison/divergence and cheap post-fork analysis tests.
+
+Two isolated local provider-double branches were persisted, their services closed and reopened, and their raw canonical rows inspected. Full resolution was `call A, call B, result A, result B`; partial resolution was `call A, call B, result A`. Result A pointed to call A and result B to call B, with matching ToolResolution IDs and recorded-replay origins. These were raw database checks, not native visual acceptance. No paid calls or remote-corpus reruns were needed. Previously persisted trajectories are not rewritten by this fix. Hosted CI is reported separately after checking the pushed commit.
+
 This records executable checks, not scientific results. Synthetic/provider-double outputs are not promoted to research evidence. Updated 2026-09-24 for the focused UX pass; the earlier semantic presentation, filtered navigation and concurrent desktop IPC record follows unchanged.
 
 ## UX pass (2026-09-24)
