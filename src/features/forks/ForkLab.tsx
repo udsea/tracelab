@@ -1,3 +1,4 @@
+import { ExperimentWorkspace } from '@/features/fork-experiments/ExperimentWorkspace'
 import {
   defaultExecution,
   ExecutionOptions,
@@ -672,6 +673,7 @@ function InterventionEditor({
 }
 export function ForkWorkspace() {
   const ui = useUI()
+  const [view, setView] = useState<'branches' | 'experiments'>('branches')
   const trajectory = useTrajectory(ui.trajectoryId)
   const trajectories = useTrajectories(ui.workspaceId)
   const forks = useQuery({
@@ -699,109 +701,138 @@ export function ForkWorkspace() {
           Fork selected event
         </Button>
       </div>
-      <div className="fork-workspace-note">
-        <Info size={15} />
-        <span>
-          Intervention points and behavioural divergence are tracked separately.
-          Comparisons are descriptive, not automatic causal claims.
-        </span>
-      </div>
-      {!forks.data?.length ? (
-        <Empty
-          icon={<GitBranch size={30} />}
-          title="Every branch starts with a question."
-          action={
-            <Button
-              variant="outline"
-              disabled={
-                !ui.trajectoryId || !trajectory.data?.capabilities.contextOnly
-              }
-              onClick={() => ui.set({ modal: 'fork' })}
-            >
-              <Plus size={14} />
-              Create your first fork
-            </Button>
-          }
+      <div role="tablist" aria-label="Fork Lab views">
+        <Button
+          variant={view === 'branches' ? 'default' : 'ghost'}
+          onClick={() => setView('branches')}
         >
-          Select a trajectory event, apply an intervention, and execute a
-          context-only continuation. Each replication becomes a normal
-          trajectory.
-        </Empty>
+          Branches
+        </Button>
+        <Button
+          variant={view === 'experiments' ? 'default' : 'ghost'}
+          onClick={() => setView('experiments')}
+        >
+          Experiments
+        </Button>
+      </div>
+      {view === 'experiments' && ui.workspaceId ? (
+        <ExperimentWorkspace
+          key={ui.workspaceId}
+          workspaceId={ui.workspaceId}
+        />
       ) : (
-        <div className="fork-tree">
-          {forks.data.map((f) => (
-            <div className="fork-tree-group" key={f.id}>
-              <div className="fork-tree-parent">
-                <span className="fork-node">
-                  <GitBranch size={17} />
-                </span>
-                <div>
-                  <strong>
-                    sample_
-                    {trajectories.data?.items.find(
-                      (t) => t.id === f.sourceTrajectoryId,
-                    )?.sampleId || 'Original trajectory'}
-                  </strong>
-                  <span>Fork at #{f.sourceEventId.split(':e').at(-1)}</span>
-                </div>
-                {!!f.metadata.synthetic && (
-                  <span
-                    className="tag"
-                    title={String(f.metadata.note ?? 'Synthetic sample data')}
-                  >
-                    SYNTHETIC
-                  </span>
-                )}
-                <span className="tag">CONTEXT ONLY</span>
-                <Status status={f.status} />
-              </div>
-              <div className="fork-intervention-label">
-                {f.interventions
-                  .map((i) => interventionLabels[i.type])
-                  .join(' + ') || 'Unmodified continuation'}
-              </div>
-              {f.metadata.error != null && (
-                <div className="inline-error">{String(f.metadata.error)}</div>
-              )}
-              {f.childTrajectoryIds.map((id, i) => (
-                <div className="fork-tree-child" key={id}>
-                  <span className="branch-line" />
-                  <button onClick={() => ui.selectTrajectory(id)}>
-                    <span className="branch-node" />
-                    <strong>Replication {i + 1}</strong>
-                    <ExecutionSummary
-                      metadata={
-                        trajectories.data?.items.find((t) => t.id === id)
-                          ?.metadata
-                      }
-                    />
-                    <Status
-                      status={
-                        trajectories.data?.items.find((t) => t.id === id)
-                          ?.status || 'unknown'
-                      }
-                    />
-                    <ArrowRight size={14} />
-                  </button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      ui.set({
-                        trajectoryId: f.sourceTrajectoryId,
-                        comparisonRight: id,
-                        section: 'compare',
-                      })
-                    }
-                  >
-                    Compare to parent
-                    <ArrowRight size={12} />
-                  </Button>
+        <>
+          <div className="fork-workspace-note">
+            <Info size={15} />
+            <span>
+              Intervention points and behavioural divergence are tracked
+              separately. Comparisons are descriptive, not automatic causal
+              claims.
+            </span>
+          </div>
+          {!forks.data?.length ? (
+            <Empty
+              icon={<GitBranch size={30} />}
+              title="Every branch starts with a question."
+              action={
+                <Button
+                  variant="outline"
+                  disabled={
+                    !ui.trajectoryId ||
+                    !trajectory.data?.capabilities.contextOnly
+                  }
+                  onClick={() => ui.set({ modal: 'fork' })}
+                >
+                  <Plus size={14} />
+                  Create your first fork
+                </Button>
+              }
+            >
+              Select a trajectory event, apply an intervention, and execute a
+              context-only continuation. Each replication becomes a normal
+              trajectory.
+            </Empty>
+          ) : (
+            <div className="fork-tree">
+              {forks.data.map((f) => (
+                <div className="fork-tree-group" key={f.id}>
+                  <div className="fork-tree-parent">
+                    <span className="fork-node">
+                      <GitBranch size={17} />
+                    </span>
+                    <div>
+                      <strong>
+                        sample_
+                        {trajectories.data?.items.find(
+                          (t) => t.id === f.sourceTrajectoryId,
+                        )?.sampleId || 'Original trajectory'}
+                      </strong>
+                      <span>Fork at #{f.sourceEventId.split(':e').at(-1)}</span>
+                    </div>
+                    {!!f.metadata.synthetic && (
+                      <span
+                        className="tag"
+                        title={String(
+                          f.metadata.note ?? 'Synthetic sample data',
+                        )}
+                      >
+                        SYNTHETIC
+                      </span>
+                    )}
+                    <span className="tag">CONTEXT ONLY</span>
+                    <Status status={f.status} />
+                  </div>
+                  <div className="fork-intervention-label">
+                    {f.interventions
+                      .map((i) => interventionLabels[i.type])
+                      .join(' + ') || 'Unmodified continuation'}
+                  </div>
+                  {f.metadata.error != null && (
+                    <div className="inline-error">
+                      {String(f.metadata.error)}
+                    </div>
+                  )}
+                  {f.childTrajectoryIds.map((id, i) => (
+                    <div className="fork-tree-child" key={id}>
+                      <span className="branch-line" />
+                      <button onClick={() => ui.selectTrajectory(id)}>
+                        <span className="branch-node" />
+                        <strong>Replication {i + 1}</strong>
+                        <ExecutionSummary
+                          metadata={
+                            trajectories.data?.items.find((t) => t.id === id)
+                              ?.metadata
+                          }
+                        />
+                        <Status
+                          status={
+                            trajectories.data?.items.find((t) => t.id === id)
+                              ?.status || 'unknown'
+                          }
+                        />
+                        <ArrowRight size={14} />
+                      </button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          ui.set({
+                            trajectoryId: f.sourceTrajectoryId,
+                            comparisonRight: id,
+                            section: 'compare',
+                          })
+                        }
+                      >
+                        Compare to parent
+                        <ArrowRight size={12} />
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
     </div>
   )

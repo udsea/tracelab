@@ -1,5 +1,35 @@
 # Validation record
 
+## 2026-09-25 — Fork experiments (PR2)
+
+Based on merged PR #13 (`0aac3b9`). All execution continues through the existing ForkRunner replication primitive and Inspect lock. No paid model calls or fresh public downloads were used.
+
+| Command | Observed result |
+| --- | --- |
+| `uv run --project backend pytest tests/test_fork_experiments.py -q` | 13 passed (final focused recovery check: 13.04 s) |
+| `uv run --project backend pytest tests/test_fork_experiments.py tests/test_fork_replay.py -q` | 70 passed |
+| `uv run --project backend pytest tests -q` | 199 passed, 3 opt-in public-corpus skips in final 77.20 s run |
+| `uv run --project backend ruff check backend tests scripts` | All checks passed |
+| `uv run --project backend ruff format --check backend tests scripts` | 105 files already formatted |
+| `pnpm test` | 54 passed in 12 files |
+| `pnpm build` | TypeScript/Vite passed; existing chunk advisory remains (application 541.93 kB, charts 556.60 kB before gzip) |
+| `cargo check --locked --manifest-path src-tauri/Cargo.toml` | Passed after allowing locked dependency downloads |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 4 passed, 0 failed |
+| `python3 scripts/check_repository.py` | 263 indexed files, zero findings |
+| `git diff --cached --check` | Passed |
+
+Python used `UV_CACHE_DIR=/private/tmp/tracelab-uv-cache`; pnpm used the cached 10.30.3 CLI. The first Rust attempt could not resolve static.crates.io under network restrictions; the authorized retry passed. Early UI tests found an empty-builder guard bug (fixed) and required a stable accessible label on the concrete-case field (added). Node's existing local-storage warning remains nonfatal.
+
+Deterministic backend acceptance covers a 2-case × 2-arm × 3-replication matrix, all trials persisted before the first run_replication call, exact rotated ordering, concrete source-specific IDs, paired requested seeds and explicit overrides, normal policy termination, isolated provider errors, concurrent experiment requests sharing serial Inspect execution, cancellation including immediate cancellation, restart reconciliation/child-link recovery, pending-only resume with a new Job, immutable concrete forks, all-cell preflight with zero artifacts on rejection, expected-spec hash checks, bounds, and aggregate cheap analysis with independent failures. The existing PR1 replay/presentation, comparison and one-off fork tests pass.
+
+The 3-case × 2-arm × 5-replication fixture created six concrete Forks and 30 trials. An injected failure in the final trial yielded five 5/5 cells and one 4/5 cell, with 29 complete, one error and experiment status partial. No success/effect estimate was produced. Eight new frontend tests cover totals, preview gating/invalidation, concrete binding preservation, actual selected-event IDs, matrix/progress rendering, child navigation, existing job cancellation and valid resume visibility.
+
+A separate 12-trial local provider-double run was closed and reopened. Raw inspection confirmed 11 complete/one error, persistent child links, schedule ordinals 0–11, paired keys and seeds 50/51/52. This is database/DOM verification, not a rebuilt native-app visual acceptance.
+
+Cached pinned `budget_siphon_H` at event #69 was used for a real-source preview: one case, two arms (unmodified control and an explicit appended instruction), two replications, four proposed trials. Both cells were supported, each with 31 replay observations and the same replay-plan hash; input/execution hashes differed. Source-record hashes were unchanged and zero ForkExperiments/Forks/ForkTrials/Jobs were created. Spec hash: `c718a67cc8db360ed5c26c4a461563ba03a697e3162581068304f39b0f92251c`. This used the previously pinned HF corpus locally; it does not establish a two-independent-run matched corpus acceptance. No duplicate source was presented as another genuine run.
+
+The builder uses explicit per-case JSON bindings and does not automatically map events. Maximum-size throughput, paid-provider experiments, native visual acceptance, scores, effects and distributed execution were not tested or claimed. See [fork experiments](fork-experiments.md) for API shape and lifecycle semantics. Hosted CI must be checked on the pushed commit separately.
+
 ## 2026-09-25 — Post-merge multi-call event ordering hotfix
 
 Based on merged PR #12 (`b99211e`). All normalized events from one model generation now precede its resolved observations. Result parent edges still point to their corresponding calls. No replay policy, model context, frontend or native code changed.

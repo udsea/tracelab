@@ -60,6 +60,8 @@ Optional **Multi-step recorded replay** exposes explicit recorded tool schemas a
 
 Every branch remains **unscored**. Assistant completion and policy termination do not establish task success or failure. Token usage describes generated continuation calls, while displayed events include the edited prefix. Native logs, exact context, execution specification, parameters, lineage and observation provenance are retained. See [fork execution semantics and limits](docs/fork-execution.md).
 
+Fork Lab also supports [fork experiments](docs/fork-experiments.md): concrete source cases × arms × replications, actual control reruns, fail-closed preview, paired serial scheduling, durable trial matrices and pending-only resume. These describe execution; they do not score task success or estimate treatment effects.
+
 - Pending/orphan tool calls are rejected. Remove both a call and its result, or replace the result.
 - Unsupported multimodal context, compacted prefixes, and explicit agent branches are rejected rather than silently reconstructed incorrectly.
 - Signed reasoning is retained when available; editing signed reasoning is rejected. Provider/model changes can still make historical reasoning incompatible.

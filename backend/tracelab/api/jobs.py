@@ -8,6 +8,7 @@ from tracelab.storage.database import Database
 class Jobs:
     def __init__(self, db: Database):
         self.db = db
+        self.closing = False
         self.tasks: dict[str, asyncio.Task] = {}
         self.active: dict[str, Job] = {}
         for old in db.list("jobs", "(data->>'status') IN ('queued','running')"):
@@ -19,6 +20,25 @@ class Jobs:
             db.put("jobs", old)
             if old["kind"] == "classifier":
                 db.put("classifier_runs", old)
+        interrupted_experiments = set()
+        for old in db.list("fork_experiments", "(data->>'status') = 'running'"):
+            interrupted_experiments.add(old["id"])
+            old["status"] = "partial"
+            old["metadata"]["interruptionReason"] = "Backend stopped before experiment completion."
+            db.put("fork_experiments", old)
+        for old in db.list("fork_trials", "(data->>'status') = 'running'"):
+            old.update(
+                status="interrupted",
+                completedAt=now(),
+                error="Backend stopped before trial completion.",
+            )
+            if not old.get("childTrajectoryId"):
+                children = db.list(
+                    "trajectories", "data->'metadata'->>'forkTrialId' = ?", [old["id"]], limit=1
+                )
+                if children:
+                    old["childTrajectoryId"] = children[0]["id"]
+            db.put("fork_trials", old)
         for old in db.list("forks", "(data->>'status') = 'running'"):
             old.update(status="failed")
             old["metadata"]["error"] = "Backend stopped before completion"
@@ -28,7 +48,32 @@ class Jobs:
         ):
             old.update(status="error")
             old["metadata"]["executionError"] = "Backend stopped before completion"
+            old["metadata"]["executionStatus"] = "error"
             db.put("trajectories", old)
+        for experiment_id in interrupted_experiments:
+            fork_experiment = db.get("fork_experiments", experiment_id)
+            trials = db.list("fork_trials", "experiment_id=?", [experiment_id], limit=2000)
+            current_job = (
+                db.maybe("jobs", fork_experiment.get("jobId"))
+                if fork_experiment.get("jobId")
+                else None
+            )
+            if current_job:
+                current_job["completed"] = sum(
+                    t["status"] in ("complete", "error", "cancelled", "interrupted") for t in trials
+                )
+                db.put("jobs", current_job)
+            for fid in fork_experiment["forkIds"]:
+                own = [t for t in trials if t["forkId"] == fid]
+                fork = db.get("forks", fid)
+                fork["status"] = (
+                    "failed"
+                    if any(t["status"] in ("error", "cancelled", "interrupted") for t in own)
+                    else "complete"
+                    if all(t["status"] == "complete" for t in own)
+                    else "configured"
+                )
+                db.put("forks", fork)
         for old in db.list(
             "trajectories",
             "(data->'metadata'->>'indexState') IN ('INDEXING','PARTIALLY_AVAILABLE') OR "
@@ -77,11 +122,12 @@ class Jobs:
 
     def cancel(self, id: str):
         if id in self.tasks:
-            self.tasks[id].cancel()
+            asyncio.get_running_loop().call_soon(self.tasks[id].cancel)
         return {"id": id, "requested": id in self.tasks}
 
     async def close(self):
+        self.closing = True
         tasks = list(self.tasks.values())
         for task in tasks:
-            task.cancel()
+            asyncio.get_running_loop().call_soon(task.cancel)
         await asyncio.gather(*tasks, return_exceptions=True)

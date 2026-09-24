@@ -323,7 +323,7 @@ class Fork(AppModel):
 
 class Job(AppModel):
     id: str = Field(default_factory=lambda: uid("job"))
-    kind: Literal["import", "classifier", "fork", "segmentation", "index", "analysis"]
+    kind: Literal["import", "classifier", "fork", "segmentation", "index", "analysis", "experiment"]
     name: str
     status: Literal["queued", "running", "complete", "failed", "cancelled"] = "queued"
     completed: int = 0

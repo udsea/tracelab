@@ -34,6 +34,11 @@ async def handle(service, method: str, p: dict):
         return prepared.preview()
     if method == "forks.run":
         fork = Fork.model_validate(p)
+        existing = service.db.maybe("forks", fork.id)
+        if existing and existing.get("metadata", {}).get("experimentId"):
+            raise ValueError(
+                "Concrete experiment forks are immutable; create a new fork or experiment"
+            )
         if fork.fidelity != "context_only":
             raise ValueError("Checkpoint restoration is unavailable. Choose context-only.")
         prepared = None
