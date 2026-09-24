@@ -6,7 +6,7 @@ TraceLab reads untrusted trajectory contents as data. It must not execute comman
 
 Review dependency-update pull requests, IPC exposure, source URL handling, path access, cache identity, replay fidelity, and the handling of malformed/unbounded inputs. The repository policy checker catches common credential patterns and forbidden artifact paths but is not a comprehensive secret detector. If a credential is exposed, revoke or rotate it; deleting a file or commit alone is insufficient.
 
-CI makes no paid model calls, receives no provider credentials, and publishes only generated application artifacts. The development macOS artifact is unsigned and unnotarized. Do not describe it as a signed production release.
+CI makes no paid model calls, receives no provider credentials, and publishes only generated application artifacts. The development macOS artifact uses an ad-hoc signature to seal the bundle; it has no Apple Developer ID and is not notarized. CI checks signature integrity before packaging and after extraction. An ad-hoc signature does not establish publisher identity or Gatekeeper approval. Do not describe it as a notarized production release.
 
 ## Tracked upstream advisory
 

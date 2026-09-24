@@ -102,7 +102,9 @@ jobs:
       - name: Build self-contained application
         run: |
           pnpm sidecar:build
-          pnpm exec tauri build --config src-tauri/tauri.bundle.conf.json --bundles app --no-sign -- --locked
+          pnpm exec tauri build --config src-tauri/tauri.bundle.conf.json --bundles app -- --locked
+      - name: Verify development bundle signature
+        run: codesign --verify --deep --strict --verbose=2 src-tauri/target/release/bundle/macos/TraceLab.app
       - name: Smoke-test the packaged runtime
         run: uv run --project backend python scripts/smoke_bundle.py
       - name: Archive with executable permissions and checksums
@@ -112,6 +114,7 @@ jobs:
           (cd artifacts && shasum -a 256 TraceLab-macos-arm64.zip > SHA256SUMS)
           {
             printf 'commit=%s\nrunner=%s\narch=%s\n' "$GITHUB_SHA" "$RUNNER_OS" "$RUNNER_ARCH"
+            printf 'signing=ad-hoc\nnotarized=false\n'
             rustc --version
             uv --version
             uv run --project backend python --version
@@ -119,6 +122,13 @@ jobs:
             pnpm --version
           } > artifacts/BUILD.txt
           git diff --exit-code
+      - name: Verify the extracted distribution archive
+        run: |
+          (cd artifacts && shasum -a 256 -c SHA256SUMS)
+          unzip -tq artifacts/TraceLab-macos-arm64.zip
+          ditto -x -k artifacts/TraceLab-macos-arm64.zip "$RUNNER_TEMP/tracelab-archive-check"
+          codesign --verify --deep --strict --verbose=2 "$RUNNER_TEMP/tracelab-archive-check/TraceLab.app"
+          uv run --project backend python scripts/smoke_bundle.py "$RUNNER_TEMP/tracelab-archive-check/TraceLab.app/Contents/Resources/backend/tracelab-backend"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: github.event_name != 'pull_request'
         with:

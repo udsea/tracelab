@@ -63,6 +63,9 @@ def main():
     ).resolve()
     app_contents = binary.parents[2]
     if (app_contents / "Info.plist").is_file():
+        subprocess.run(
+            ["codesign", "--verify", "--deep", "--strict", str(app_contents.parent)], check=True
+        )
         with open(app_contents / "Info.plist", "rb") as stream:
             info = plistlib.load(stream)
         icon = info["CFBundleIconFile"]
