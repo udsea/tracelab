@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowRight,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Empty, Field, Status } from '@/components/common/Primitives'
+import { Empty, Field, Loading, Status } from '@/components/common/Primitives'
 import {
   useAction,
   useProviders,
@@ -21,7 +21,25 @@ import {
 } from '@/hooks/queries'
 import { notify, useUI } from '@/stores/ui'
 import { rpc } from '@/lib/api'
-import type { Fork, Intervention, Job } from '@/types/domain'
+import { eventLabel } from '@/lib/utils'
+import type {
+  Fork,
+  Intervention,
+  Job,
+  TrajectoryEvent,
+} from '@/types/domain'
+import {
+  buildGenerationParameters,
+  defaultGeneration,
+  defaultIntervention,
+  estimateTokens,
+  lineDiff,
+  originalFor,
+  replacementBlocked,
+  targets,
+  toInterventions,
+  type EditorIntervention,
+} from './request'
 const interventionLabels: Record<Intervention['type'], string> = {
   remove_event: 'Remove event',
   replace_content: 'Replace content',
@@ -30,12 +48,6 @@ const interventionLabels: Record<Intervention['type'], string> = {
   system_prompt_override: 'Override system prompt',
   model_override: 'Change model',
   generation_override: 'Change generation parameters',
-}
-type EditorIntervention = {
-  type: Intervention['type']
-  eventId: string
-  text: string
-  role: string
 }
 export function ForkDialog() {
   const ui = useUI()
@@ -47,14 +59,58 @@ export function ForkDialog() {
       description="Create a reproducible intervention branch. The source remains intact."
       wide
     >
-      {ui.modal === 'fork' && <ForkForm />}
+      {ui.modal === 'fork' && ui.trajectoryId && (
+        <ForkForm
+          key={`${ui.trajectoryId}:${ui.selectedIndex}`}
+          trajectoryId={ui.trajectoryId}
+          selectedIndex={ui.selectedIndex}
+        />
+      )}
     </Dialog>
   )
 }
-function ForkForm() {
+
+const useEventAt = (trajectoryId: string, index: number, enabled = true) =>
+  useQuery({
+    // Same key as the inspector, so the selected event is usually already cached.
+    queryKey: ['event', trajectoryId, index],
+    queryFn: () =>
+      rpc<{ event: TrajectoryEvent; results: unknown[] }>('events.get', {
+        trajectoryId,
+        index,
+      }),
+    enabled,
+  })
+
+interface Preview {
+  sourceEventIndex: number
+  model: string
+  provider: {
+    id: string
+    name: string
+    kind: string
+    baseUrl: string
+    apiKeyEnv: string
+  }
+  parameters: Record<string, unknown>
+  seedIncrementsByReplication: boolean
+  replicationCount: number
+  messages: unknown[]
+  inputHash: string
+  contextCharacters: number
+}
+
+export function ForkForm({
+  trajectoryId,
+  selectedIndex,
+}: {
+  trajectoryId: string
+  selectedIndex: number
+}) {
   const ui = useUI()
-  const source = useTrajectory(ui.trajectoryId)
+  const source = useTrajectory(trajectoryId)
   const providers = useProviders()
+  const selected = useEventAt(trajectoryId, selectedIndex)
   const [provider, setProvider] = useState('openai')
   const [model, setModel] = useState(
     source.data?.trajectory.model?.startsWith('example/')
@@ -62,58 +118,61 @@ function ForkForm() {
       : source.data?.trajectory.model || '',
   )
   const [replications, setReplications] = useState(1)
-  const [interventions, setInterventions] = useState<EditorIntervention[]>([
-    {
-      type: 'replace_content',
-      eventId: `${ui.trajectoryId}:e${ui.selectedIndex}`,
-      text: '',
-      role: 'user',
-    },
-  ])
-  const [parameters, setParameters] = useState('{"max_tokens": 2048}')
+  const [generation, setGeneration] = useState(defaultGeneration)
+  const [items, setItems] = useState<EditorIntervention[] | null>(null)
+  const [nextKey, setNextKey] = useState(1)
+  const [fidelityOpen, setFidelityOpen] = useState(false)
+  const event = selected.data?.event
+  useEffect(() => {
+    // The first intervention targets the selected event, not a typed index.
+    if (items === null && (event || selected.error))
+      setItems([defaultIntervention(event, selectedIndex)])
+  }, [event, selected.error, items, selectedIndex])
   const action = useAction<Job>('forks.run', ['jobs', 'forks', 'trajectories'])
+  const params = buildGenerationParameters(generation)
+  const built = toInterventions(trajectoryId, items ?? [])
+  const localError = params.error ?? built.error
+  const replicationCount = Math.max(1, Math.min(100, replications || 1))
+  const request = {
+    sourceTrajectoryId: trajectoryId,
+    sourceEventId: `${trajectoryId}:e${selectedIndex}`,
+    fidelity: 'context_only',
+    interventions: built.interventions,
+    modelOverrides: { provider, model, parameters: params.parameters },
+    replicationCount,
+  }
+  const requestKey = JSON.stringify(request)
+  const [debounced, setDebounced] = useState(requestKey)
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(requestKey), 350)
+    return () => clearTimeout(id)
+  }, [requestKey])
+  const preview = useQuery({
+    queryKey: ['fork-preview', debounced],
+    queryFn: () => rpc<Preview>('forks.preview', JSON.parse(debounced)),
+    enabled: items !== null && !localError,
+    retry: false,
+  })
+  const contextOnly = !!source.data?.capabilities.contextOnly
   function change(index: number, patch: Partial<EditorIntervention>) {
-    setInterventions((items) =>
-      items.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    setItems((current) =>
+      (current ?? []).map((item, i) =>
+        i === index ? { ...item, ...patch } : item,
+      ),
     )
   }
   async function run() {
     try {
-      const items: Intervention[] = interventions.map((item) => {
-        if (item.type === 'remove_event')
-          return { type: item.type, eventId: item.eventId }
-        if (item.type === 'replace_content')
-          return { type: item.type, eventId: item.eventId, content: item.text }
-        if (item.type === 'replace_tool_result')
-          return {
-            type: item.type,
-            eventId: item.eventId,
-            value: JSON.parse(item.text),
-          }
-        if (item.type === 'append_message')
-          return { type: item.type, role: item.role, content: item.text }
-        if (item.type === 'system_prompt_override')
-          return { type: item.type, content: item.text }
-        if (item.type === 'model_override')
-          return { type: item.type, model: item.text }
-        return { type: item.type, parameters: JSON.parse(item.text) }
-      })
-      await action.mutateAsync({
-        sourceTrajectoryId: ui.trajectoryId,
-        sourceEventId: `${ui.trajectoryId}:e${ui.selectedIndex}`,
-        fidelity: 'context_only',
-        interventions: items,
-        modelOverrides: { provider, model, parameters: JSON.parse(parameters) },
-        replicationCount: replications,
-      })
+      await action.mutateAsync(request)
       ui.set({ modal: 'jobs', section: 'forks' })
     } catch (error) {
       notify(String(error))
     }
   }
+  const maxTokens = params.parameters.max_tokens as number | undefined
   return (
-    <div className="dialog-body">
-      {source.data && !source.data.capabilities.contextOnly && (
+    <div className="dialog-body fork-form">
+      {source.data && !contextOnly && (
         <div className="inline-error">
           Fork unavailable: {source.data.capabilities.reason}
         </div>
@@ -123,140 +182,106 @@ function ForkForm() {
         <div>
           <strong>sample_{source.data?.trajectory.sampleId}</strong>
           <span>
-            Prefix through event #{ui.selectedIndex} · {ui.selectedIndex + 1}{' '}
-            source events
+            Prefix through event #{selectedIndex} · {selectedIndex + 1}{' '}
+            recorded event{selectedIndex === 0 ? '' : 's'}
           </span>
         </div>
-        <span className="tag">CONTEXT ONLY</span>
+        <button
+          className="tag fidelity-badge"
+          aria-expanded={fidelityOpen}
+          aria-controls="fork-fidelity"
+          title="What a context-only fork restores"
+          onClick={() => setFidelityOpen(!fidelityOpen)}
+        >
+          CONTEXT-ONLY <Info size={11} aria-hidden />
+        </button>
       </div>
-      <div className="fidelity-panel">
-        <div>
-          <h4>CONTEXT-ONLY FORK</h4>
-          <span>
-            <Check size={12} />
-            Recorded conversation context
-          </span>
+      {fidelityOpen && (
+        <div className="fidelity-panel" id="fork-fidelity">
+          <ul>
+            <li>
+              <Check size={12} aria-hidden /> Recorded conversational context is
+              restored
+            </li>
+            <li>
+              <X size={12} aria-hidden /> Original filesystem and process state
+              are unavailable
+            </li>
+            <li>
+              <X size={12} aria-hidden /> Arbitrary external state (APIs,
+              services) is unavailable
+            </li>
+            <li>
+              <X size={12} aria-hidden /> The original tool scaffold is
+              unavailable; the continuation cannot call tools
+            </li>
+            <li>
+              <Info size={12} aria-hidden /> Each branch is initially unscored
+            </li>
+          </ul>
+          <p>
+            One model continuation per replication runs through Inspect.{' '}
+            {source.data?.capabilities.reason}
+          </p>
         </div>
-        <div>
-          <span>
-            <X size={12} />
-            Filesystem & running processes
-          </span>
-          <span>
-            <X size={12} />
-            External APIs & arbitrary environment state
-          </span>
+      )}
+      {event?.type === 'tool_call' && (
+        <div className="inline-warning">
+          Event #{selectedIndex} is a tool call, so its result would be missing
+          from the context. Fork after its result instead.
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => ui.select(selectedIndex + 1)}
+          >
+            Use #{selectedIndex + 1}
+          </Button>
         </div>
-        <p>
-          Executes one real model continuation through Inspect. Original tools,
-          agent scaffold, and scorer are unavailable. Branch outcome remains
-          unscored.
-        </p>
-      </div>
-      <label
-        className="disabled-option"
-        title={source.data?.capabilities.reason}
-      >
-        <input type="radio" disabled />
-        Checkpoint restoration unavailable
-        <Info size={13} />
-      </label>
-      <p className="muted small">{source.data?.capabilities.reason}</p>
+      )}
       <div className="detail-heading intervention-heading">
         INTERVENTIONS
         <Button
           variant="ghost"
           size="sm"
-          onClick={() =>
-            setInterventions((items) => [
-              ...items,
+          onClick={() => {
+            setItems((current) => [
+              ...(current ?? []),
               {
+                key: nextKey,
                 type: 'append_message',
-                eventId: `${ui.trajectoryId}:e${ui.selectedIndex}`,
+                targetIndex: selectedIndex,
                 text: '',
+                original: null,
                 role: 'user',
               },
             ])
-          }
+            setNextKey(nextKey + 1)
+          }}
         >
           <Plus size={13} />
           Add intervention
         </Button>
       </div>
-      {interventions.map((item, index) => (
-        <div className="intervention-editor" key={index}>
-          <div className="intervention-top">
-            <span>{String(index + 1).padStart(2, '0')}</span>
-            <select
-              value={item.type}
-              onChange={(e) =>
-                change(index, { type: e.target.value as Intervention['type'] })
-              }
-            >
-              {Object.entries(interventionLabels).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <Button
-              variant="ghost"
-              size="icon"
-              title="Remove intervention"
-              onClick={() =>
-                setInterventions((items) => items.filter((_, i) => i !== index))
-              }
-            >
-              <Trash2 size={13} />
-            </Button>
-          </div>
-          {['remove_event', 'replace_content', 'replace_tool_result'].includes(
-            item.type,
-          ) && (
-            <Field label="Event index">
-              <input
-                type="number"
-                min={0}
-                max={ui.selectedIndex}
-                value={Number(item.eventId.split(':e').at(-1))}
-                onChange={(e) =>
-                  change(index, {
-                    eventId: `${ui.trajectoryId}:e${e.target.value}`,
-                  })
-                }
-              />
-            </Field>
-          )}
-          {item.type === 'append_message' && (
-            <Field label="Role">
-              <select
-                value={item.role}
-                onChange={(e) => change(index, { role: e.target.value })}
-              >
-                <option>user</option>
-                <option>assistant</option>
-                <option>system</option>
-              </select>
-            </Field>
-          )}
-          {item.type !== 'remove_event' && (
-            <textarea
-              rows={3}
-              placeholder={
-                ['replace_tool_result', 'generation_override'].includes(
-                  item.type,
-                )
-                  ? 'Valid JSON value'
-                  : item.type === 'model_override'
-                    ? 'Model ID'
-                    : 'New content…'
-              }
-              value={item.text}
-              onChange={(e) => change(index, { text: e.target.value })}
-            />
-          )}
-        </div>
-      ))}
+      {items === null ? (
+        <Loading text={`Loading event #${selectedIndex}…`} />
+      ) : (
+        items.map((item, index) => (
+          <InterventionEditor
+            key={item.key}
+            number={index + 1}
+            item={item}
+            trajectoryId={trajectoryId}
+            maxIndex={selectedIndex}
+            onChange={(patch) => change(index, patch)}
+            onRemove={() =>
+              setItems((current) =>
+                (current ?? []).filter((_, i) => i !== index),
+              )
+            }
+          />
+        ))
+      )}
+      <div className="detail-heading">CONTINUATION</div>
       <div className="form-row">
         <Field label="Provider">
           <select
@@ -293,33 +318,305 @@ function ForkForm() {
           />
         </Field>
       </div>
-      <Field
-        label="Generation parameters (JSON)"
-        hint="An explicit seed increments by replication. Provider support for seeds varies."
-      >
-        <input
-          className="mono"
-          value={parameters}
-          onChange={(e) => setParameters(e.target.value)}
-        />
-      </Field>
+      <div className="form-row">
+        <Field label="Temperature" hint="Blank uses the provider default">
+          <input
+            inputMode="decimal"
+            value={generation.temperature}
+            placeholder="default"
+            onChange={(e) =>
+              setGeneration({ ...generation, temperature: e.target.value })
+            }
+          />
+        </Field>
+        <Field label="Max output tokens">
+          <input
+            inputMode="numeric"
+            value={generation.maxTokens}
+            onChange={(e) =>
+              setGeneration({ ...generation, maxTokens: e.target.value })
+            }
+          />
+        </Field>
+        <Field
+          label="Seed"
+          hint="Increments by replication; provider support varies"
+        >
+          <input
+            inputMode="numeric"
+            value={generation.seed}
+            placeholder="none"
+            onChange={(e) =>
+              setGeneration({ ...generation, seed: e.target.value })
+            }
+          />
+        </Field>
+      </div>
+      <details className="raw-details">
+        <summary>Advanced generation parameters (JSON)</summary>
+        <Field
+          label="Additional parameters"
+          hint="Supported: top_p, top_k, reasoning_effort, reasoning_tokens, stop_seqs"
+        >
+          <textarea
+            className="mono"
+            rows={3}
+            value={generation.advanced}
+            placeholder='{"top_p": 0.9}'
+            onChange={(e) =>
+              setGeneration({ ...generation, advanced: e.target.value })
+            }
+          />
+        </Field>
+      </details>
+      {localError && <div className="inline-error">{localError}</div>}
+      {preview.error && !localError && (
+        <div className="inline-error">{preview.error.message}</div>
+      )}
+      <details className="raw-details fork-preview">
+        <summary>Preview continuation input</summary>
+        {preview.data ? (
+          <div className="fork-preview-body">
+            <dl>
+              <dt>Provider</dt>
+              <dd>
+                {preview.data.provider.name} · {preview.data.provider.baseUrl} ·
+                key read from ${preview.data.provider.apiKeyEnv}
+              </dd>
+              <dt>Model</dt>
+              <dd>
+                {preview.data.model}
+                {!model &&
+                  ' (recorded model; enter a continuation model to run)'}
+              </dd>
+              <dt>Generation</dt>
+              <dd className="mono">
+                {JSON.stringify(preview.data.parameters)}
+              </dd>
+              <dt>Replications</dt>
+              <dd>
+                {preview.data.replicationCount}
+                {preview.data.seedIncrementsByReplication &&
+                  ' · seed increments by replication'}
+              </dd>
+              <dt>Input hash</dt>
+              <dd className="mono">{preview.data.inputHash.slice(0, 16)}…</dd>
+            </dl>
+            <pre>{JSON.stringify(preview.data.messages, null, 2)}</pre>
+          </div>
+        ) : (
+          <p className="muted">
+            {localError
+              ? 'Fix the highlighted input to preview the request.'
+              : 'Reconstructing the edited context…'}
+          </p>
+        )}
+      </details>
       <div className="form-actions">
-        <span>Context is sent to the selected provider.</span>
+        <span className="fork-estimate">
+          {preview.data
+            ? `≈${estimateTokens(preview.data.contextCharacters).toLocaleString()} context tokens (character estimate)`
+            : 'Context size pending'}
+          {maxTokens ? ` · up to ${maxTokens.toLocaleString()} output tokens` : ''}{' '}
+          × {replicationCount} replication{replicationCount === 1 ? '' : 's'} ·
+          Monetary cost unavailable
+          <small>Context is sent to the selected provider.</small>
+        </span>
         <Button
           disabled={
             !model ||
-            !ui.trajectoryId ||
             action.isPending ||
-            !source.data?.capabilities.contextOnly
+            !contextOnly ||
+            !!localError ||
+            !!preview.error
           }
           onClick={() => {
             void run()
           }}
         >
           <Play size={13} />
-          Run {replications > 1 ? `${replications} replications` : 'fork'}
+          Run {replicationCount > 1 ? `${replicationCount} replications` : 'fork'}
         </Button>
       </div>
+    </div>
+  )
+}
+
+function InterventionEditor({
+  number,
+  item,
+  trajectoryId,
+  maxIndex,
+  onChange,
+  onRemove,
+}: {
+  number: number
+  item: EditorIntervention
+  trajectoryId: string
+  maxIndex: number
+  onChange: (patch: Partial<EditorIntervention>) => void
+  onRemove: () => void
+}) {
+  const [changingTarget, setChangingTarget] = useState(false)
+  const hasTarget = targets(item.type)
+  const target = useEventAt(trajectoryId, item.targetIndex, hasTarget)
+  const event = target.data?.event
+  const replaces =
+    item.type === 'replace_content' || item.type === 'replace_tool_result'
+  const blocked = replaces ? replacementBlocked(event) : null
+  useEffect(() => {
+    // Replacements start from the target's original content.
+    if (replaces && event && item.original === null) {
+      const original = originalFor(item.type, event) ?? ''
+      onChange({ original, text: item.text || original })
+    }
+  }, [replaces, event, item.original, item.type])
+  const diff =
+    replaces && item.original !== null && item.text !== item.original
+      ? lineDiff(item.original, item.text)
+      : null
+  return (
+    <div className="intervention-editor">
+      <div className="intervention-top">
+        <span>{String(number).padStart(2, '0')}</span>
+        <select
+          aria-label={`Intervention ${number} type`}
+          value={item.type}
+          onChange={(e) =>
+            onChange({
+              type: e.target.value as Intervention['type'],
+              original: null,
+              text: '',
+            })
+          }
+        >
+          {Object.entries(interventionLabels).map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+        {hasTarget && (
+          <span className="intervention-target">
+            Event #{item.targetIndex}
+            {event && ` · ${event.tool?.name || eventLabel(event.type)}`}
+            <button
+              className="text-button"
+              aria-expanded={changingTarget}
+              onClick={() => setChangingTarget(!changingTarget)}
+            >
+              Change target
+            </button>
+          </span>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          title="Remove intervention"
+          aria-label={`Remove intervention ${number}`}
+          onClick={onRemove}
+        >
+          <Trash2 size={13} />
+        </Button>
+      </div>
+      {hasTarget && changingTarget && (
+        <Field
+          label="Target event index"
+          hint={`Any event from #0 to #${maxIndex} in the prefix`}
+        >
+          <input
+            type="number"
+            min={0}
+            max={maxIndex}
+            value={item.targetIndex}
+            onChange={(e) =>
+              onChange({
+                targetIndex: Math.max(0, Math.min(maxIndex, +e.target.value)),
+                original: null,
+                text: '',
+              })
+            }
+          />
+        </Field>
+      )}
+      {blocked && <div className="inline-warning">{blocked}</div>}
+      {item.type === 'append_message' && (
+        <Field label="Role">
+          <select
+            value={item.role}
+            onChange={(e) => onChange({ role: e.target.value })}
+          >
+            <option>user</option>
+            <option>assistant</option>
+            <option>system</option>
+          </select>
+        </Field>
+      )}
+      {replaces ? (
+        <div className="replacement-grid">
+          <div>
+            <span className="replacement-label">Original</span>
+            <pre className="replacement-original" data-testid="original-content">
+              {item.original ?? (target.isLoading ? 'Loading…' : '—')}
+            </pre>
+          </div>
+          <label>
+            <span className="replacement-label">
+              Replacement
+              {item.type === 'replace_tool_result' && ' (JSON)'}
+            </span>
+            <textarea
+              rows={6}
+              value={item.text}
+              onChange={(e) => onChange({ text: e.target.value })}
+            />
+          </label>
+        </div>
+      ) : (
+        item.type !== 'remove_event' && (
+          <textarea
+            rows={3}
+            aria-label={`Intervention ${number} value`}
+            placeholder={
+              item.type === 'generation_override'
+                ? 'Valid JSON object'
+                : item.type === 'model_override'
+                  ? 'Model ID'
+                  : 'New content…'
+            }
+            value={item.text}
+            onChange={(e) => onChange({ text: e.target.value })}
+          />
+        )
+      )}
+      {replaces && item.original !== null && item.text !== item.original && (
+        <details className="raw-details" open>
+          <summary>
+            Changes
+            {diff
+              ? ` · +${diff.filter((d) => d.op === '+').length} −${diff.filter((d) => d.op === '-').length} lines`
+              : ' · too large for a line diff'}
+          </summary>
+          {diff && (
+            <pre className="line-diff">
+              {diff.map((d, i) => (
+                <span
+                  key={i}
+                  className={
+                    d.op === '+'
+                      ? 'diff-add'
+                      : d.op === '-'
+                        ? 'diff-del'
+                        : 'diff-same'
+                  }
+                >
+                  {d.op} {d.text}
+                </span>
+              ))}
+            </pre>
+          )}
+        </details>
+      )}
     </div>
   )
 }
@@ -345,6 +642,7 @@ export function ForkWorkspace() {
           disabled={
             !ui.trajectoryId || !trajectory.data?.capabilities.contextOnly
           }
+          title={`Fork from the selected event (#${ui.selectedIndex}) of the open trajectory`}
           onClick={() => ui.set({ modal: 'fork' })}
         >
           <GitBranch size={14} />
@@ -389,12 +687,21 @@ export function ForkWorkspace() {
                 </span>
                 <div>
                   <strong>
+                    sample_
                     {trajectories.data?.items.find(
                       (t) => t.id === f.sourceTrajectoryId,
                     )?.sampleId || 'Original trajectory'}
                   </strong>
                   <span>Fork at #{f.sourceEventId.split(':e').at(-1)}</span>
                 </div>
+                {!!f.metadata.synthetic && (
+                  <span
+                    className="tag"
+                    title={String(f.metadata.note ?? 'Synthetic sample data')}
+                  >
+                    SYNTHETIC
+                  </span>
+                )}
                 <span className="tag">CONTEXT ONLY</span>
                 <Status status={f.status} />
               </div>
@@ -412,10 +719,12 @@ export function ForkWorkspace() {
                   <button onClick={() => ui.selectTrajectory(id)}>
                     <span className="branch-node" />
                     <strong>Replication {i + 1}</strong>
-                    <span>
-                      {trajectories.data?.items.find((t) => t.id === id)
-                        ?.status || 'Open trajectory'}
-                    </span>
+                    <Status
+                      status={
+                        trajectories.data?.items.find((t) => t.id === id)
+                          ?.status || 'unknown'
+                      }
+                    />
                     <ArrowRight size={14} />
                   </button>
                   <Button

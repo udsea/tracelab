@@ -3,22 +3,16 @@ import { useQuery } from '@tanstack/react-query'
 import {
   ArrowRight,
   Check,
-  Command,
-  FolderOpen,
-  GitBranch,
   Globe2,
-  Layers3,
   Play,
-  Plus,
   Search,
-  Settings2,
   Square,
-  Sun,
   Trash2,
   X,
 } from 'lucide-react'
 import { Dialog } from '@/components/ui/dialog'
 import { AddSource } from '@/features/sources/AddSource'
+import { CommandPalette } from './CommandPalette'
 import { RemoteCacheSettings } from '@/features/sources/SourcePanel'
 import { Button } from '@/components/ui/button'
 import {
@@ -49,7 +43,10 @@ export function WorkspaceDialogs() {
       'Search your workspace',
       'Find text in messages, reasoning, tools, errors, and annotations.',
     ],
-    commands: ['Command palette', 'Navigate TraceLab from your keyboard.'],
+    commands: [
+      'Command palette',
+      'Navigate and act from the keyboard. Search is on /.',
+    ],
     settings: [
       'Provider settings',
       'One place for model endpoints and environment-based credentials.',
@@ -75,7 +72,7 @@ export function WorkspaceDialogs() {
     >
       {ui.modal === 'import' && <AddSource />}
       {ui.modal === 'search' && <SearchPanel />}
-      {ui.modal === 'commands' && <Commands />}
+      {ui.modal === 'commands' && <CommandPalette />}
       {ui.modal === 'settings' && <Settings />}
       {ui.modal === 'jobs' && <JobsPanel />}
       {ui.modal === 'annotate' && <AnnotationForm />}
@@ -164,88 +161,6 @@ function SearchPanel() {
           background; source logs remain unchanged.
         </p>
       )}
-    </div>
-  )
-}
-function Commands() {
-  const ui = useUI()
-  const [q, setQ] = useState('')
-  const actions = [
-    {
-      label: 'Add trajectory source',
-      key: '⌘ O',
-      icon: FolderOpen,
-      run: () => ui.set({ modal: 'import' }),
-    },
-    {
-      label: 'Search workspace',
-      key: '/',
-      icon: Search,
-      run: () => ui.set({ modal: 'search' }),
-    },
-    {
-      label: 'Browse trajectories',
-      key: '',
-      icon: Layers3,
-      run: () => ui.set({ modal: null, section: 'browser' }),
-    },
-    {
-      label: 'Create a classifier',
-      key: '',
-      icon: Plus,
-      run: () => ui.set({ modal: null, section: 'classifiers' }),
-    },
-    {
-      label: 'Fork selected event',
-      key: 'F',
-      icon: GitBranch,
-      run: () => ui.set({ modal: 'fork' }),
-    },
-    {
-      label: 'Provider settings',
-      key: '',
-      icon: Settings2,
-      run: () => ui.set({ modal: 'settings' }),
-    },
-    {
-      label: 'Toggle light / dark theme',
-      key: '',
-      icon: Sun,
-      run: () =>
-        ui.set({ theme: ui.theme === 'dark' ? 'light' : 'dark', modal: null }),
-    },
-    {
-      label: 'Recent workspaces',
-      key: '',
-      icon: Command,
-      run: () => {
-        ui.setWorkspace(null)
-        ui.set({ modal: null })
-      },
-    },
-  ].filter((a) => a.label.toLowerCase().includes(q.toLowerCase()))
-  return (
-    <div className="dialog-body command-dialog">
-      <div className="search-input">
-        <Command size={16} />
-        <input
-          autoFocus
-          placeholder="What would you like to do?"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') actions[0]?.run()
-          }}
-        />
-      </div>
-      {actions.map((a) => (
-        <button className="command-row" key={a.label} onClick={a.run}>
-          <a.icon size={16} />
-          {a.label}
-          <kbd>{a.key}</kbd>
-          <ArrowRight size={13} />
-        </button>
-      ))}
     </div>
   )
 }

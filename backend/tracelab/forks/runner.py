@@ -15,7 +15,8 @@ class ForkRunner:
         self.load_events, self.data_dir = load_events, data_dir
         self.execution_lock = asyncio.Lock()  # Inspect owns process-level eval context.
 
-    async def run(self, job: Job, fork: Fork):
+    async def prepare(self, fork: Fork):
+        """Reconstruct exactly what a run would send. Shared by execution and preview."""
         if fork.fidelity != "context_only":
             raise ValueError("Checkpoint restoration is unavailable for this adapter")
         parent = Trajectory.model_validate(self.db.get("trajectories", fork.source_trajectory_id))
@@ -33,6 +34,12 @@ class ForkRunner:
         if not model:
             raise ValueError("A continuation model is required")
         provider = ProviderSettings.model_validate(self.db.get("providers", provider_id))
+        return parent, source, edited, appended, config, messages, model, provider
+
+    async def run(self, job: Job, fork: Fork):
+        parent, source, edited, appended, config, messages, model, provider = await self.prepare(
+            fork
+        )
         try:
             commit = (
                 subprocess.run(

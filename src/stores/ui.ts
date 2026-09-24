@@ -1,6 +1,23 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-type Section = 'trajectory' | 'classifiers' | 'forks' | 'compare' | 'browser'
+export type Section =
+  | 'trajectory'
+  | 'classifiers'
+  | 'forks'
+  | 'compare'
+  | 'browser'
+export type AnalysisTab =
+  | 'overview'
+  | 'signals/semantic'
+  | 'signals/rules'
+  | 'signals/statistical'
+  | 'signals/environment'
+  | 'compare'
+  | 'internals/graph'
+  | 'internals/imported'
+  | 'notes'
+/** Sections whose content belongs to the selected trajectory and its run outline. */
+export const outlineSections: Section[] = ['trajectory', 'classifiers']
 type Modal =
   | 'import'
   | 'search'
@@ -17,6 +34,7 @@ interface UIState {
   selectedIndex: number
   jumpVersion: number
   section: Section
+  analysisTab: AnalysisTab
   modal: Modal
   mode: string
   expanded: boolean
@@ -35,6 +53,7 @@ interface UIState {
   selectTrajectory: (id: string) => void
   jump: (index: number) => void
   select: (index: number) => void
+  openAnalysis: (tab: AnalysisTab) => void
   set: (value: Partial<UIState>) => void
 }
 export const useUI = create<UIState>()(
@@ -45,6 +64,7 @@ export const useUI = create<UIState>()(
       selectedIndex: 0,
       jumpVersion: 0,
       section: 'trajectory',
+      analysisTab: 'overview',
       modal: null,
       mode: 'all',
       expanded: false,
@@ -103,6 +123,8 @@ export const useUI = create<UIState>()(
           section: 'trajectory',
         })),
       select: (index) => set({ selectedIndex: index }),
+      openAnalysis: (tab) =>
+        set({ section: 'classifiers', analysisTab: tab, modal: null }),
       set,
     }),
     {

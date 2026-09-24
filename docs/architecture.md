@@ -14,7 +14,7 @@
 
 `classifiers/runner.py` supplies exact events and IDs, validates the output JSON schema and Pydantic model, rejects out-of-window evidence, retries malformed output once, and records raw attempts. Workers consume bounded windows without spawning one task per window. Provider transport failures are recorded without implicit SDK retries.
 
-`forks/context.py` applies edits to copies and validates the tool-call/result protocol. `inspect_adapter/replay.py` constructs an Inspect task using the reconstructed context, a configured model, and `generate(tool_calls="none")`. The original task code and environment are not imported or executed. `forks/runner.py` serializes Inspect eval calls, saves each replication as a trajectory, retains partial/error branches, and stores native logs separately from sources.
+`forks/context.py` applies edits to copies and validates the tool-call/result protocol. `inspect_adapter/replay.py` constructs an Inspect task using the reconstructed context, a configured model, and `generate(tool_calls="none")`. The original task code and environment are not imported or executed. `forks.preview` calls the runner's shared `prepare` step to return the exact reconstructed messages, model, parameters and provider identity (environment variable name only) without persisting or executing anything. `forks/runner.py` serializes Inspect eval calls, saves each replication as a trajectory, retains partial/error branches, and stores native logs separately from sources.
 
 At startup, jobs and fork trajectories left running by an interrupted backend are marked failed/error with an explanation. Classifier outputs already completed remain available. Cancellation awaits in-flight workers and never promotes an incomplete result to a completed job.
 

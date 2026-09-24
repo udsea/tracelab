@@ -15,6 +15,7 @@ from inspect_ai.model import (
 from inspect_ai.solver import generate
 from pydantic import Field, TypeAdapter
 
+from tracelab.forks.context import GENERATION_PARAMETERS
 from tracelab.models.domain import ProviderSettings
 
 MESSAGE = TypeAdapter(
@@ -38,17 +39,7 @@ async def continue_context(
     settings = ProviderSettings.model_validate(provider)
     parsed = [MESSAGE.validate_python(m) for m in messages]
     # Public Inspect API; do not reuse original solvers, executable task code, or sandbox state.
-    allowed = {
-        "temperature",
-        "max_tokens",
-        "top_p",
-        "top_k",
-        "seed",
-        "reasoning_effort",
-        "reasoning_tokens",
-        "stop_seqs",
-    }
-    if set(parameters) - allowed:
+    if set(parameters) - GENERATION_PARAMETERS:
         raise ValueError("Unsupported fork generation parameter")
     config = GenerateConfig(max_retries=0, timeout=180, **parameters)
     prefix = "anthropic" if settings.kind == "anthropic" else "openai"

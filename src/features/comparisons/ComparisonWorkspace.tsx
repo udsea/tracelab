@@ -1,16 +1,22 @@
 import { ContrastiveSignals } from '@/features/analysis/ContrastiveSignals'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ArrowDown,
   ArrowRight,
   Columns2,
+  GitBranch,
   GitCompareArrows,
   Info,
   Layers3,
 } from 'lucide-react'
-import { useClassifiers, useExperiments } from '@/hooks/queries'
+import {
+  useClassifiers,
+  useExperiments,
+  useTrajectories,
+  useWorkspaces,
+} from '@/hooks/queries'
 import { Button } from '@/components/ui/button'
 import { TrajectoryPicker } from '@/components/trajectory/TrajectoryPicker'
 import {
@@ -88,6 +94,19 @@ function PairView() {
       }),
     enabled: !!left,
   })
+  const branches = useTrajectories(ui.workspaceId).data?.items.filter(
+    (t) => left && t.parentTrajectoryId === left,
+  )
+  // Suggestions only pre-fill a choice; the researcher still picks the pair.
+  const suggestions = [
+    ...(branches ?? []).map((t) => ({ t, why: 'Fork branch of this run' })),
+    ...(matchField === 'sampleId' ? (candidates.data ?? []) : [])
+      .filter((t) => !t.parentTrajectoryId)
+      .map((t) => ({
+        t,
+        why: `Same sample · ${t.condition || 'other condition'}`,
+      })),
+  ]
   const result = useQuery({
     queryKey: ['comparison', left, right],
     queryFn: () => rpc<PairComparison>('compare.pair', { left, right }),
@@ -152,7 +171,9 @@ function PairView() {
           Matched candidates
           <select value="" onChange={(e) => setRight(e.target.value)}>
             <option value="">
-              {candidates.data?.length ?? 0} candidates · choose explicitly
+              {candidates.data?.length ?? 0}{' '}
+              {candidates.data?.length === 1 ? 'candidate' : 'candidates'} ·
+              choose explicitly
             </option>
             {candidates.data?.map((t) => (
               <option key={t.id} value={t.id}>
@@ -166,9 +187,31 @@ function PairView() {
         <Empty
           icon={<Columns2 size={28} />}
           title="Two trajectories. One view."
+          action={
+            suggestions.length > 0 && (
+              <div
+                className="suggested-pairs"
+                role="group"
+                aria-label="Suggested comparisons"
+              >
+                {suggestions.slice(0, 4).map(({ t, why }) => (
+                  <button
+                    key={t.id}
+                    className="suggested-pair"
+                    onClick={() => setRight(t.id)}
+                  >
+                    {t.parentTrajectoryId && <GitBranch size={13} />}
+                    <strong>sample_{t.sampleId}</strong>
+                    <small>{why}</small>
+                  </button>
+                ))}
+              </div>
+            )
+          }
         >
           Choose a second trajectory or a fork to inspect shared history,
           intervention points, and subsequent differences.
+          {suggestions.length > 0 && ' Suggested pairs for this run:'}
         </Empty>
       )}
       {result.isLoading && <Loading text="Aligning trajectory events…" />}
@@ -330,8 +373,24 @@ function GroupView() {
   const ui = useUI()
   const experiments = useExperiments(ui.workspaceId)
   const definitions = useClassifiers()
+  const workspaces = useWorkspaces()
   const [a, setA] = useState('')
   const [b, setB] = useState('')
+  const pair = (experiments.data ?? []).slice(0, 2)
+  const isDemo = workspaces.data?.find((w) => w.id === ui.workspaceId)?.isDemo
+  useEffect(() => {
+    // The sample opens with its two conditions already chosen.
+    if (isDemo && !a && !b && pair.length === 2) {
+      const [first, second] = [...pair].sort((x, y) =>
+        x.name.includes('baseline') ? -1 : y.name.includes('baseline') ? 1 : 0,
+      )
+      setA(first.id)
+      setB(second.id)
+      // Fork branches share their parent's experiment; the conditions select the runs.
+      setConditionA(first.name.split(' · ').at(-1) ?? '')
+      setConditionB(second.name.split(' · ').at(-1) ?? '')
+    }
+  }, [isDemo, pair.length])
   const [conditionA, setConditionA] = useState('')
   const [conditionB, setConditionB] = useState('')
   const [drill, setDrill] = useState<{ group: number; metric: string } | null>(
@@ -524,7 +583,22 @@ function GroupView() {
         </div>
       )}
       {!a || !b ? (
-        <Empty title="Compare two experimental groups">
+        <Empty
+          title="Compare two experimental groups"
+          action={
+            pair.length === 2 && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setA(pair[0].id)
+                  setB(pair[1].id)
+                }}
+              >
+                Compare {pair[0].name} with {pair[1].name}
+              </Button>
+            )
+          }
+        >
           Choose experiments and optionally restrict each to a condition.
         </Empty>
       ) : null}

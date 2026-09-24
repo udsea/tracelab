@@ -27,6 +27,7 @@ export interface Workspace {
   createdAt: string
   openedAt: string
   isDemo: boolean
+  featuredTrajectoryId?: string | null
 }
 export interface Experiment {
   id: string

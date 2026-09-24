@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Info } from 'lucide-react'
+import { channelHelp, channelLabels, sourceLabel } from './channels'
+import { humanize } from './overview'
 import { Dialog } from '@/components/ui/dialog'
 import { useUI } from '@/stores/ui'
 import { rpc } from '@/lib/api'
@@ -51,7 +54,7 @@ export function SignalInspector() {
             <div className="evidence-summary">
               <strong>{s.score?.toFixed(3) ?? s.label ?? 'Unscored'}</strong>
               <span>
-                {s.sourceType} · {s.channel.replace('_', ' ')} · #
+                {sourceLabel(s.sourceType)} · {channelLabels[s.channel]} · #
                 {s.startEventIndex}–{s.endEventIndex}
               </span>
             </div>
@@ -180,34 +183,81 @@ function EvidenceIds({ ids }: { ids: string[] }) {
     </div>
   )
 }
+/** One row per lane: overlapping rolling windows collapse to the one centred nearest the event. */
+export function coveringSignals(signals: AnalysisSignal[], index: number) {
+  const best = new Map<string, AnalysisSignal>()
+  for (const s of signals) {
+    if (s.startEventIndex > index || s.endEventIndex < index) continue
+    const lane = String(s.metadata.laneId ?? s.name)
+    const current = best.get(lane)
+    const distance = (x: AnalysisSignal) =>
+      Math.abs((x.startEventIndex + x.endEventIndex) / 2 - index)
+    const width = (x: AnalysisSignal) => x.endEventIndex - x.startEventIndex
+    if (
+      !current ||
+      distance(s) < distance(current) ||
+      (distance(s) === distance(current) && width(s) < width(current))
+    )
+      best.set(lane, s)
+  }
+  return [...best.values()]
+}
 export function AnalysisStack() {
   const ui = useUI(),
     query = useSignals(ui.trajectoryId)
-  const rows =
-    query.data?.filter(
-      (s) =>
-        s.startEventIndex <= ui.selectedIndex &&
-        s.endEventIndex >= ui.selectedIndex,
-    ) ?? []
+  const [help, setHelp] = useState(false)
+  const rows = coveringSignals(query.data ?? [], ui.selectedIndex)
+  // Only channels with measurements here; empty channels are not listed per event.
+  const channels = (['BLACK_BOX', 'GRAY_BOX', 'WHITE_BOX'] as const).filter(
+    (channel) => rows.some((s) => s.channel === channel),
+  )
   return (
-    <section className="analysis-stack">
-      <h4>Analysis stack · #{ui.selectedIndex}</h4>
-      {(['BLACK_BOX', 'GRAY_BOX', 'WHITE_BOX'] as const).map((channel) => (
-        <div key={channel}>
-          <small>{channel.replace('_', ' ')}</small>
-          {rows
-            .filter((s) => s.channel === channel)
-            .map((s) => (
-              <button key={s.id} onClick={() => ui.set({ signalId: s.id })}>
-                {s.name}
-                <strong>{s.score?.toFixed(2) ?? s.label ?? '—'}</strong>
-              </button>
-            ))}
-          {!rows.some((s) => s.channel === channel) && (
-            <p className="muted">No measurements available.</p>
-          )}
-        </div>
-      ))}
+    <section className="analysis-stack" aria-label={`Analysis at event #${ui.selectedIndex}`}>
+      <div className="analysis-stack-heading">
+        <h4>Analysis at #{ui.selectedIndex}</h4>
+        <button
+          className="icon-button"
+          aria-expanded={help}
+          aria-label="What are black, gray and white box signals?"
+          title="What are black, gray and white box signals?"
+          onClick={() => setHelp(!help)}
+        >
+          <Info size={13} />
+        </button>
+      </div>
+      {help && (
+        <dl className="channel-help">
+          {(['BLACK_BOX', 'GRAY_BOX', 'WHITE_BOX'] as const).map((c) => (
+            <div key={c}>
+              <dt>{channelLabels[c]}</dt>
+              <dd>{channelHelp[c]}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {!channels.length ? (
+        <p className="muted analysis-empty">
+          No analysis signals cover this event.
+        </p>
+      ) : (
+        channels.map((channel) => (
+          <div key={channel}>
+            <small title={channelHelp[channel]}>{channelLabels[channel]}</small>
+            {rows
+              .filter((s) => s.channel === channel)
+              .map((s) => (
+                <button key={s.id} onClick={() => ui.set({ signalId: s.id })}>
+                  {humanize(s.name)}
+                  <strong>
+                    {s.sourceType === 'human'
+                      ? 'annotation'
+                      : (s.score?.toFixed(2) ?? s.label ?? '—')}
+                  </strong>
+                </button>
+              ))}
+          </div>
+        ))
+      )}
     </section>
   )
 }

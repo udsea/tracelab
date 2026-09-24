@@ -85,6 +85,7 @@ class Service:
             "results.get": routes_analysis.handle,
             "forks.list": routes_execution.handle,
             "forks.run": routes_execution.handle,
+            "forks.preview": routes_execution.handle,
             "compare.pair": routes_execution.handle,
             "compare.groups": routes_execution.handle,
             "compare.members": routes_execution.handle,

@@ -28,6 +28,8 @@ class Workspace(AppModel):
     created_at: str = Field(default_factory=now)
     opened_at: str = Field(default_factory=now)
     is_demo: bool = False
+    # Optional first trajectory to open, e.g. the sample run that carries the demo fork.
+    featured_trajectory_id: str | None = None
 
 
 class SourceRef(AppModel):
