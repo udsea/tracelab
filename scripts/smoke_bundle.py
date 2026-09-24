@@ -123,6 +123,9 @@ def main():
             detail = rpc("analysis.signal", {"trajectoryId": tid, "id": rule_signal["id"]})
             assert detail["signal"]["provenance"]["implementationHash"]
             assert len(detail["signal"]["provenance"]["inputManifest"]["inputEventIds"]) == 487
+            # The completed detector intentionally invalidates the derived overview.
+            # Compare restart against that final state, not the pre-detector snapshot.
+            overview = rpc("analysis.overview", {"trajectoryId": tid})
             source_workspace = rpc("workspaces.create", {"name": "Packaged format smoke"})
             fixture = Path(data) / "atif.json"
             fixture.write_text(
