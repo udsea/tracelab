@@ -1,8 +1,7 @@
+import { RunOutline } from '@/features/analysis/RunOutline'
 import {
   ChevronDown,
-  ChevronRight,
   ChevronsLeft,
-  CircleDot,
   FlaskConical,
   FolderOpen,
   GitBranch,
@@ -12,12 +11,7 @@ import {
   Settings2,
   SplitSquareHorizontal,
 } from 'lucide-react'
-import {
-  useExperiments,
-  useTimeline,
-  useTrajectories,
-  useWorkspaces,
-} from '@/hooks/queries'
+import { useExperiments, useTrajectories, useWorkspaces } from '@/hooks/queries'
 import { useUI } from '@/stores/ui'
 import { Status } from '@/components/common/Primitives'
 import { Button } from '@/components/ui/button'
@@ -27,7 +21,6 @@ export function Sidebar() {
   const workspaces = useWorkspaces()
   const experiments = useExperiments(ui.workspaceId)
   const trajectories = useTrajectories(ui.workspaceId)
-  const timeline = useTimeline(ui.trajectoryId)
   const workspace = workspaces.data?.find((w) => w.id === ui.workspaceId)
   return (
     <aside className="sidebar">
@@ -46,7 +39,7 @@ export function Sidebar() {
         {(
           [
             ['trajectory', Layers3, 'Trajectory explorer'],
-            ['classifiers', FlaskConical, 'Classifiers'],
+            ['classifiers', FlaskConical, 'Analysis'],
             ['forks', GitBranch, 'Fork lab'],
             ['compare', SplitSquareHorizontal, 'Comparisons'],
           ] as const
@@ -119,70 +112,7 @@ export function Sidebar() {
         Browse & filter all trajectories
         <span>{trajectories.data?.total || 0}</span>
       </button>
-      {ui.trajectoryId && (
-        <>
-          <div className="sidebar-heading phase-title">
-            TRAJECTORY OUTLINE
-            <Layers3 size={12} />
-          </div>
-          <div className="phase-tree">
-            <button
-              className={cn('phase-link', !ui.range && 'phase-current')}
-              onClick={() => ui.set({ range: null })}
-            >
-              <CircleDot size={13} />
-              <span>All events</span>
-            </button>
-            {timeline.data?.segments.map((s, i) => (
-              <button
-                key={s.id}
-                className={cn(
-                  'phase-link',
-                  s.parentId && 'episode-link',
-                  ui.range?.start === s.startEvent && 'phase-current',
-                )}
-                onClick={() =>
-                  ui.set({
-                    range: {
-                      start: s.startEvent,
-                      end: s.endEvent,
-                      label: s.label,
-                    },
-                    section: 'trajectory',
-                  })
-                }
-              >
-                <span className={`phase-number phase-${i % 4}`}>
-                  {s.parentId ? (
-                    <ChevronRight size={12} />
-                  ) : (
-                    String(
-                      timeline
-                        .data!.segments.filter((x) => !x.parentId)
-                        .indexOf(s) + 1,
-                    ).padStart(2, '0')
-                  )}
-                </span>
-                <span>
-                  {s.label}
-                  <small>
-                    #{s.startEvent} – {s.endEvent}
-                  </small>
-                </span>
-              </button>
-            ))}
-          </div>
-          <button
-            className="sidebar-text-action"
-            onClick={() => ui.set({ modal: 'segment' })}
-          >
-            <Plus size={12} />
-            {timeline.data?.segments.length
-              ? 'Edit or regenerate phases'
-              : 'Generate trajectory phases'}
-          </button>
-        </>
-      )}
+      {ui.trajectoryId && <RunOutline />}
       <div className="sidebar-footer">
         <span className="local-indicator">
           <i />

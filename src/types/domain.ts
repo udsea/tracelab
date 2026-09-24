@@ -119,6 +119,8 @@ export interface Annotation {
   createdAt: string
 }
 export interface ClassifierDefinition {
+  version?: number
+  previousId?: string | null
   id: string
   workspaceId?: string | null
   name: string
@@ -181,7 +183,7 @@ export interface Fork {
 }
 export interface Job {
   id: string
-  kind: 'import' | 'classifier' | 'fork' | 'segmentation' | 'index'
+  kind: 'import' | 'classifier' | 'fork' | 'segmentation' | 'index' | 'analysis'
   name: string
   status: 'queued' | 'running' | 'complete' | 'failed' | 'cancelled'
   completed: number

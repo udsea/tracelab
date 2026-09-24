@@ -1,3 +1,4 @@
+import { ContrastiveSignals } from '@/features/analysis/ContrastiveSignals'
 import { useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -21,7 +22,7 @@ import {
 import { rpc } from '@/lib/api'
 import { duration, number } from '@/lib/utils'
 import { useUI } from '@/stores/ui'
-import type { Filter, PairComparison } from '@/types/domain'
+import type { Filter, PairComparison, Trajectory } from '@/types/domain'
 interface Group {
   experimentId?: string
   filters?: Filter[]
@@ -77,6 +78,16 @@ function PairView() {
   const [left, setLeft] = useState(ui.trajectoryId || '')
   const [right, setRight] = useState(ui.comparisonRight || '')
   const [differencesOnly, setDifferencesOnly] = useState(false)
+  const [matchField, setMatchField] = useState('sampleId')
+  const candidates = useQuery({
+    queryKey: ['matched-trajectories', left, matchField],
+    queryFn: () =>
+      rpc<Trajectory[]>('analysis.matchCandidates', {
+        controlId: left,
+        field: matchField,
+      }),
+    enabled: !!left,
+  })
   const result = useQuery({
     queryKey: ['comparison', left, right],
     queryFn: () => rpc<PairComparison>('compare.pair', { left, right }),
@@ -110,6 +121,45 @@ function PairView() {
             exclude={left}
             placeholder="Select trajectory or branch…"
           />
+        </label>
+      </div>
+      <div className="comparison-selectors">
+        <label>
+          Match by
+          <select
+            value={matchField.startsWith('metadata.') ? 'metadata' : matchField}
+            onChange={(e) =>
+              setMatchField(
+                e.target.value === 'metadata'
+                  ? 'metadata.task_id'
+                  : e.target.value,
+              )
+            }
+          >
+            <option value="sampleId">Sample ID</option>
+            <option value="task">Task</option>
+            <option value="metadata">Custom metadata</option>
+          </select>
+        </label>
+        {matchField.startsWith('metadata.') && (
+          <input
+            aria-label="Metadata pairing field"
+            value={matchField.slice(9)}
+            onChange={(e) => setMatchField('metadata.' + e.target.value)}
+          />
+        )}
+        <label>
+          Matched candidates
+          <select value="" onChange={(e) => setRight(e.target.value)}>
+            <option value="">
+              {candidates.data?.length ?? 0} candidates · choose explicitly
+            </option>
+            {candidates.data?.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.sampleId} · {t.condition} · {t.model}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
       {!right && (
@@ -175,6 +225,7 @@ function PairView() {
               </tbody>
             </table>
           </div>
+          <ContrastiveSignals left={left} right={right} />
           <div className="divergence-summary">
             <div>
               <span>SHARED PREFIX</span>

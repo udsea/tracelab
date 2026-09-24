@@ -39,6 +39,14 @@ async def handle(service, method: str, p: dict):
         async def execute(j):
             try:
                 await service.forks.run(j, fork)
+                from tracelab.analysis.branches import schedule_branch_analysis
+
+                try:
+                    analysis = schedule_branch_analysis(service, fork)
+                    fork.metadata["analysisJobId"] = analysis["id"]
+                    service.db.put("forks", fork)
+                except Exception as analysis_error:
+                    service.jobs.save(j, f"Branch analysis unavailable: {analysis_error}")
             except BaseException as exc:
                 fork.status = "failed"
                 fork.metadata["error"] = str(exc) or "Cancelled"

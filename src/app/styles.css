@@ -3234,3 +3234,30 @@ tbody tr:last-child td {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Shared derived analysis surfaces */
+.analysis-workspace { min-height:0; flex:1; display:flex; flex-direction:column; overflow:auto; }
+.analysis-tabs { display:flex; gap:4px; padding:10px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+.analysis-tabs button, .analysis-presets button, .timeline-heading button { padding:5px 9px; border:1px solid var(--line); border-radius:4px; font-size:11px; }
+.analysis-tabs .active { background:var(--accent); color:var(--text); }
+.analysis-presets { display:flex; gap:6px; flex-wrap:wrap; margin:14px 0; }
+.outline-node { text-align:left; padding:6px 16px; display:flex; flex-direction:column; overflow:hidden; border-bottom:1px solid var(--line); }
+.outline-node:hover { background:var(--hover); }
+.outline-node strong { font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.outline-node small { font-size:9px; opacity:.65; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.timeline-fidelity { font-size:10px; padding:3px 18px; color:#bd9d6e; }
+.analysis-lane-menu { display:flex; gap:10px; flex-wrap:wrap; padding:8px; font-size:11px; }
+.execution-view { padding:0 12px; }
+.execution-view svg path[role=button] { cursor:pointer; }
+.relationship-evidence { padding:12px; border:1px solid var(--line); font-size:11px; }
+.relationship-evidence pre { max-height:130px; overflow:auto; white-space:pre-wrap; }
+.signal-summary-list button,.analysis-stack button { display:flex; justify-content:space-between; gap:12px; width:100%; padding:9px 5px; text-align:left; border-bottom:1px solid var(--line); }
+.signal-summary-list small { display:block; opacity:.65; font-size:10px; }
+.analysis-stack { margin:10px 0; padding:10px; border-bottom:1px solid var(--line); font-size:11px; }
+.analysis-stack h4 { margin-bottom:10px; }
+.analysis-stack small { opacity:.65; }
+.analysis-stack .muted { font-size:10px; }
+.contrastive-signals { padding:16px; border:1px solid var(--line); margin:12px 0; font-size:11px; }
+.contrastive-track { position:relative; height:16px; margin:5px 0; }
+.contrastive-track button { position:absolute; height:12px; background:#678577; border:1px solid #344e41; border-radius:3px; }
+.contrastive-track.signals button { background:#a6a1d6; opacity:.35; height:5px; }

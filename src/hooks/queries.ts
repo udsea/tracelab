@@ -76,7 +76,10 @@ export function useAction<T = unknown>(
   return useMutation({
     mutationFn: (params: object) => rpc<T>(method, params),
     onSuccess: () => {
-      invalidate.forEach((key) => {
+      const derived = invalidate.includes('timeline')
+        ? [...invalidate, 'signals', 'overview']
+        : invalidate
+      derived.forEach((key) => {
         void client.invalidateQueries({ queryKey: [key] })
       })
     },

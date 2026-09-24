@@ -22,6 +22,11 @@ interface UIState {
   expanded: boolean
   theme: 'dark' | 'light'
   range: { start: number; end: number; label: string } | null
+  scale: 'events' | 'time' | 'calls'
+  signalId: string | null
+  rangeHistory: ({ start: number; end: number; label: string } | null)[]
+  focus: (start: number, end: number, label: string) => void
+  backRange: () => void
   hiddenLanes: string[]
   comparisonRight: string | null
   resultId: string | null
@@ -45,6 +50,23 @@ export const useUI = create<UIState>()(
       expanded: false,
       theme: 'dark',
       range: null,
+      scale: 'events',
+      signalId: null,
+      rangeHistory: [],
+      focus: (start, end, label) =>
+        set((state) => ({
+          rangeHistory: [...state.rangeHistory, state.range].slice(-30),
+          range: { start, end, label },
+          selectedIndex: start,
+          jumpVersion: state.jumpVersion + 1,
+          section: 'trajectory',
+          mode: 'all',
+        })),
+      backRange: () =>
+        set((state) => ({
+          range: state.rangeHistory.at(-1) ?? null,
+          rangeHistory: state.rangeHistory.slice(0, -1),
+        })),
       hiddenLanes: [],
       comparisonRight: null,
       resultId: null,
@@ -56,6 +78,8 @@ export const useUI = create<UIState>()(
           selectedIndex: 0,
           section: 'trajectory',
           range: null,
+          rangeHistory: [],
+          signalId: null,
         }),
       selectTrajectory: (id) =>
         set({
@@ -63,6 +87,8 @@ export const useUI = create<UIState>()(
           selectedIndex: 0,
           section: 'trajectory',
           range: null,
+          rangeHistory: [],
+          signalId: null,
           mode: 'all',
         }),
       jump: (index) =>
@@ -70,6 +96,9 @@ export const useUI = create<UIState>()(
           selectedIndex: index,
           jumpVersion: state.jumpVersion + 1,
           mode: 'all',
+          rangeHistory: state.range
+            ? [...state.rangeHistory, state.range].slice(-30)
+            : state.rangeHistory,
           range: null,
           section: 'trajectory',
         })),
