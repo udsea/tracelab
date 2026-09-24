@@ -146,7 +146,10 @@ def prepare_loaded(runner, fork, parent, events):
         if multi:
             try:
                 records = runner.db.list(
-                    "source_records", "trajectory_id = ?", [parent.id], limit=1000000
+                    "source_records",
+                    "id IN (SELECT data->'metadata'->>'sourceRecordId' FROM events WHERE trajectory_id = ?)",
+                    [parent.id],
+                    limit=1000000,
                 )
                 p.tool_catalog = extract_recorded_tool_catalog(events, records, source["index"])
                 p.replay_tape = build_replay_tape(events, source["index"])

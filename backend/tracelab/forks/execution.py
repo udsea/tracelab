@@ -123,6 +123,13 @@ class ReplayExecution:
             if prior_calls + ordinal > self.prepared.execution_spec.max_tool_calls:
                 self.termination = "max_tool_calls"
                 continue
+            raw_call = (message.get("tool_calls") or [])[ordinal - 1]
+            if raw_call.get("parse_error") or raw_call.get("type", "function") != "function":
+                self.termination = "tool_resolution_error"
+                self.trajectory.metadata["terminationDetail"] = (
+                    "Generated call arguments could not be parsed, or the call is not a supported function call."
+                )
+                continue
             tool = call.tool
             try:
                 if not tool.call_id:

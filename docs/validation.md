@@ -29,7 +29,8 @@ Manual walkthrough in the browser development build at 1280×800, dark and light
 
 | Command | Observed result |
 | --- | --- |
-| `uv run --project backend pytest tests -q` | 181 passed, 3 opt-in public-corpus skips in 89.16 s |
+| `uv run --project backend pytest tests -q` | 183 passed, 3 opt-in public-corpus skips in 55.18 s |
+| `uv run --project backend pytest tests/test_fork_replay.py -q` | 54 passed in 8.20 s after final canonical assistant-output fixture verification |
 | `uv run --project backend ruff check backend tests scripts` | All checks passed |
 | `uv run --project backend ruff format --check backend tests scripts` | 99 files already formatted |
 | `pnpm test` | 46 passed in 11 files |
@@ -42,7 +43,7 @@ Manual walkthrough in the browser development build at 1280×800, dark and light
 
 Python used `UV_CACHE_DIR=/private/tmp/tracelab-uv-cache`; pnpm 10.30.3 used its locally cached CLI. The first frontend invocation accidentally discovered a separate `.claude/worktrees/ux-pass` checkout and failed with duplicate-React hook errors. Discovery is now explicitly scoped to `src/**/*.test.{ts,tsx}`; this checkout's full suite passes. The other worktree was not modified. Node's existing local-storage warning remains nonfatal.
 
-Coverage includes legacy execution defaults, rejected combinations, exact canonical arguments, sequential matching with no search-ahead, repeated identical calls, multi-call partial resolution, exhaustion/mismatch, bounds, exact stubs and permanent replay disablement, unknown task outcomes, provider errors, cancellation, token accounting, provenance/hashes, missing/dynamic/lossy schemas, unsupported observations, parent/raw immutability, pure previews and persisted resolution retrieval. UI tests exercise mode defaults, request serialization, bounds, capability blocking, plan summaries, source links, replay/stub badges and honest wording.
+Coverage includes legacy execution defaults, rejected combinations, exact canonical arguments, sequential matching with no search-ahead, repeated identical calls, multi-call partial resolution, exhaustion/mismatch, bounds, exact stubs and permanent replay disablement, unknown task outcomes, provider errors, cancellation, token accounting, provenance/hashes, missing/dynamic/lossy schemas (including copied ancestor records), malformed generated calls, unsupported observations, parent/raw immutability, pure previews and persisted resolution retrieval. UI tests exercise mode defaults, request serialization, bounds, capability blocking, plan summaries, source links, replay/stub badges and honest wording.
 
 Production Inspect execution was exercised with its local mock model, not a replacement execution UI. A three-generation branch received `alpha` and `2 passed`, wrote one native `.eval`, and retained generated call IDs. The native transcript contains three model events and zero executed tool/sandbox events. A generated shell command that would create a sentinel file was persisted as unmatched; no file appeared. A real cancellation test caught Inspect swallowing cancellation and returning an empty log list; the adapter now owns outer cancellation, joins Inspect cleanup, preserves the resolved prefix and marks the child cancelled. A subsequent test passed with no third model call.
 

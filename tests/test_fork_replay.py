@@ -35,7 +35,11 @@ def output(*calls, text="thinking", usage=True):
             {
                 "message": {
                     "role": "assistant",
-                    "content": [{"type": "reasoning", "reasoning": text}],
+                    "content": [
+                        {"type": "reasoning", "reasoning": text}
+                        if calls
+                        else {"type": "text", "text": text}
+                    ],
                     "tool_calls": [
                         {"id": cid, "function": name, "arguments": args, "type": "function"}
                         for cid, name, args in calls
@@ -236,7 +240,7 @@ async def test_three_steps_provenance_usage_prefix_and_restart(service):
         "reasoning",
         "tool_call",
         "tool_result",
-        "reasoning",
+        "assistant",
     ]
     assert seen[0][0]["tool_call_id"] == "child1"
     resolutions = service.db.list("tool_resolutions", "trajectory_id=?", [child["id"]])
@@ -452,6 +456,7 @@ async def test_real_inspect_multistep_one_native_log(service, monkeypatch):
     child = service.db.get("trajectories", fork.child_trajectory_ids[0])
     log = read_eval_log(child["metadata"]["logPath"])
     assert log.status == "success"
+    assert log.samples[0].output.completion == "Done."
     assert len([e for e in log.samples[0].events if e.event == "model"]) == 3
     assert [m.tool_call_id for m in log.samples[0].messages if m.role == "tool"] == ["c1", "c2"]
     assert not [e for e in log.samples[0].events if e.event in ("tool", "sandbox")]
@@ -494,7 +499,9 @@ async def test_recorded_error_and_unknown_usage(service):
 
 async def test_opaque_generated_reasoning_remains_protected(service):
     generated = output(text="ciphertext")
-    generated["choices"][0]["message"]["content"][0].update(redacted=True)
+    generated["choices"][0]["message"]["content"] = [
+        {"type": "reasoning", "reasoning": "ciphertext", "redacted": True}
+    ]
     _, child, events, _ = await run(service, [generated])
     event = events[-1]
     detail = await service.dispatch("events.get", {"id": event["id"]})
@@ -736,3 +743,33 @@ async def test_rpc_job_uses_prepared_replay_and_schedules_only_cheap_analysis(se
     analysis = service.db.get("jobs", stored["metadata"]["analysisJobId"])
     assert analysis["status"] == "complete"
     assert "LLM detectors are never silently rerun" in analysis["metadata"]["llmPolicy"]
+
+
+async def test_catalog_follows_copied_ancestor_source_record_ids(service):
+    fork, _, records, _ = await setup(service)
+    # A branch prefix retains sourceRecordId but its raw record belongs to its ancestor.
+    records[0]["trajectoryId"] = "ancestor"
+    service.db.put("source_records", records[0])
+    prepared = await service.forks.prepare(fork)
+    assert prepared.replay_support["supported"]
+    assert records[0]["id"] in prepared.tool_catalog.source_record_ids
+    # The old catalog cannot be skipped when it differs from later child generations.
+    records[0]["raw"]["tools"] = SCHEMAS[:1]
+    service.db.put("source_records", records[0])
+    prepared = await service.forks.prepare(fork)
+    assert prepared.replay_support["reasonCode"] == "dynamic_tool_catalog_unsupported"
+
+
+async def test_provider_parse_error_never_matches_repaired_arguments(service):
+    value = output(("a", "read_file", {"path": "a.txt"}))
+    value["choices"][0]["message"]["tool_calls"][0]["parse_error"] = "Invalid provider JSON"
+    fork, _, _, _ = await setup(service, [value])
+    with pytest.raises(RuntimeError):
+        await service.forks.run(Job(kind="fork", name="malformed provider call"), fork)
+    child = service.db.get("trajectories", fork.child_trajectory_ids[0])
+    assert child["metadata"]["terminationReason"] == "tool_resolution_error"
+    assert not service.db.list("tool_resolutions")
+    events = await service.load_events(child["id"])
+    assert events[-1]["type"] == "tool_call"
+    raw = await service.dispatch("events.raw", {"id": events[-1]["id"]})
+    assert "Invalid provider JSON" in json.dumps(raw)
