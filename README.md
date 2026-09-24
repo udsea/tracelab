@@ -54,9 +54,11 @@ Running a classifier, segmentation, or fork sends its selected context to the co
 
 ### Fork fidelity and scope
 
-**Context-only replay is implemented and executes through Inspect.** It reconstructs the normalized recorded prefix, applies validated interventions, and generates **one model continuation per replication** in a new Inspect evaluation. Its native log, exact context, parameters, seed when requested, model, versions, lineage, and source IDs are persisted.
+**Context-only forks execute through Inspect.** The default reconstructs the normalized recorded prefix, applies validated interventions and generates **one model continuation per replication**, with tools disabled.
 
-This mode does **not** resume the original tool implementations, solver/agent scaffold, filesystem, running processes, external APIs, or scorer. It does not recreate an entire tool-using task from a log. A completed model call is an **unscored** trajectory, not a successful task. Token usage for a branch describes its continuation call, while its displayed event count includes the replayed prefix.
+Optional **Multi-step recorded replay** exposes explicit recorded tool schemas and continues through exact sequential recorded observations. Generated tools are never executed; the original solver, filesystem, processes, APIs and scorer are not restored. Exact researcher stubs are synthetic, and recorded replay cannot resume after the first stub. Missing/changing schemas, ambiguous pairings and unsupported observations fail closed.
+
+Every branch remains **unscored**. Assistant completion and policy termination do not establish task success or failure. Token usage describes generated continuation calls, while displayed events include the edited prefix. Native logs, exact context, execution specification, parameters, lineage and observation provenance are retained. See [fork execution semantics and limits](docs/fork-execution.md).
 
 - Pending/orphan tool calls are rejected. Remove both a call and its result, or replace the result.
 - Unsupported multimodal context, compacted prefixes, and explicit agent branches are rejected rather than silently reconstructed incorrectly.

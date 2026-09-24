@@ -1,3 +1,4 @@
+import { ToolOrigin } from '@/features/forks/ExecutionOptions'
 import { presentationLabel, opaqueDescription } from './presentation'
 import type {
   ReasoningVisibility,
@@ -129,6 +130,7 @@ export function EventInspector() {
                 <Copy size={14} />
               </Button>
             </div>
+            <ToolOrigin metadata={event.metadata} />
             <div className="inspector-meta">
               <span>Role</span>
               <span>{event.role || '—'}</span>

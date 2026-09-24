@@ -14,7 +14,7 @@
 
 `classifiers/runner.py` supplies exact events and IDs, validates the output JSON schema and Pydantic model, rejects out-of-window evidence, retries malformed output once, and records raw attempts. Workers consume bounded windows without spawning one task per window. Provider transport failures are recorded without implicit SDK retries.
 
-`forks/context.py` applies edits to copies and validates the tool-call/result protocol. `inspect_adapter/replay.py` constructs an Inspect task using the reconstructed context, a configured model, and `generate(tool_calls="none")`. The original task code and environment are not imported or executed. `forks.preview` calls the runner's shared `prepare` step to return the exact reconstructed messages, model, parameters and provider identity (environment variable name only) without persisting or executing anything. `forks/runner.py` serializes Inspect eval calls, saves each replication as a trajectory, retains partial/error branches, and stores native logs separately from sources.
+`forks/context.py` applies edits to copies and validates the tool-call/result protocol. `forks/preparation.py` provides the typed, shared preview/execution input. `forks/replay.py` implements exact sequential recorded-observation matching and permanent replay disablement after a synthetic stub. `forks/execution.py` persists generated events, resolution provenance and accounting. `inspect_adapter/replay.py` uses one Inspect evaluation per replication: either the existing `generate(tool_calls="none")` single reply or a custom solver calling public `Model.generate` with schema-only `ToolInfo` definitions. No original tool implementations, task code or sandbox are loaded. `forks/runner.py` retains the Inspect execution lock for the entire replication and cancellation cleanup. See [fork execution](fork-execution.md).
 
 At startup, jobs and fork trajectories left running by an interrupted backend are marked failed/error with an explanation. Classifier outputs already completed remain available. Cancellation awaits in-flight workers and never promotes an incomplete result to a completed job.
 
@@ -22,7 +22,7 @@ Presentation classification and filtered navigation are described in [analysis](
 
 ## Deliberate limits
 
-- The context-only fork is a model continuation, not arbitrary long-horizon agent restoration. Original tool runtime/scorer binding is a future adapter capability.
+- Context-only continuations can reuse exact recorded observations; they do not restore or execute tools/environments. Live tool runtime and scoring remain future capabilities.
 - Checkpoint events are not sufficient evidence that a filesystem can be restored. Restoration stays unavailable.
 - Outcome interpretation is scorer-dependent. No generic mapping from an Inspect `success` execution to task success is applied.
 - `source_records` retain the fields exposed by the supported Inspect public parser. Compatibility with future unknown log schema versions is not assumed.

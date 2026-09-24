@@ -1,45 +1,34 @@
 import asyncio
 import copy
 import subprocess
+from datetime import datetime
 
 from tracelab import __version__
-from tracelab.classifiers.runner import canonical_hash
-from tracelab.forks.context import apply_interventions, context_messages
+from tracelab.forks.execution import MODE, NOTE, ReplayExecution
+from tracelab.forks.preparation import PreparedFork, prepare
+from tracelab.forks.replay import POLICY, ReplayUnsupported
 from tracelab.inspect_adapter.normalize import normalize_sample
-from tracelab.models.domain import Fork, Job, ProviderSettings, Trajectory, now, uid
+from tracelab.models.domain import Fork, Job, Trajectory, now, uid
 
 
 class ForkRunner:
     def __init__(self, db, jobs, adapter, load_events, data_dir):
         self.db, self.jobs, self.adapter = db, jobs, adapter
         self.load_events, self.data_dir = load_events, data_dir
-        self.execution_lock = asyncio.Lock()  # Inspect owns process-level eval context.
+        self.execution_lock = asyncio.Lock()
 
-    async def prepare(self, fork: Fork):
-        """Reconstruct exactly what a run would send. Shared by execution and preview."""
-        if fork.fidelity != "context_only":
-            raise ValueError("Checkpoint restoration is unavailable for this adapter")
-        parent = Trajectory.model_validate(self.db.get("trajectories", fork.source_trajectory_id))
-        all_events = await self.load_events(parent.id)
-        if parent.capabilities and not parent.capabilities.context_fork:
-            raise ValueError(parent.capabilities.reason)
-        source = next((e for e in all_events if e["id"] == fork.source_event_id), None)
-        if not source:
-            raise ValueError("Source event does not belong to source trajectory")
-        prefix = [e for e in all_events if e["index"] <= source["index"]]
-        edited, appended, config = apply_interventions(prefix, fork)
-        messages = context_messages(edited, appended)
-        model = config.get("model") or parent.model
-        provider_id = config.get("provider", "openai")
-        if not model:
-            raise ValueError("A continuation model is required")
-        provider = ProviderSettings.model_validate(self.db.get("providers", provider_id))
-        return parent, source, edited, appended, config, messages, model, provider
+    async def prepare(self, fork: Fork) -> PreparedFork:
+        return await prepare(self, fork)
 
-    async def run(self, job: Job, fork: Fork):
-        parent, source, edited, appended, config, messages, model, provider = await self.prepare(
-            fork
-        )
+    async def run(self, job: Job, fork: Fork, prepared: PreparedFork | None = None):
+        prepared = prepared or await self.prepare(fork)
+        multi = prepared.execution_spec.continuation == "multi_step"
+        if multi and not prepared.replay_support["supported"]:
+            fork.metadata["replaySupport"] = prepared.replay_support
+            self.db.put("forks", fork)
+            raise ReplayUnsupported(
+                prepared.replay_support["reasonCode"], prepared.replay_support["reason"]
+            )
         try:
             commit = (
                 subprocess.run(
@@ -49,146 +38,36 @@ class ForkRunner:
             )
         except (OSError, subprocess.TimeoutExpired):
             commit = None
-        fork.metadata |= {
-            "sourceExperiment": parent.experiment_id,
-            "sourceEventIndex": source["index"],
-            "inspectVersion": self.adapter.version,
-            "traceLabVersion": __version__,
-            "gitCommit": commit,
-            "model": model,
-            "provider": provider.wire(),
-            "parameters": config.get("parameters", {}),
-            "inputHash": canonical_hash(messages),
-            "context": messages,
-            "executionMode": "single_model_continuation",
-            "contextReconstruction": "normalized_recorded_prefix",
-            "toolsRestored": False,
-            "jobId": job.id,
-        }
+        fork.metadata.update(
+            sourceExperiment=prepared.parent.experiment_id,
+            sourceEventIndex=prepared.source_event["index"],
+            inspectVersion=self.adapter.version,
+            traceLabVersion=__version__,
+            gitCommit=commit,
+            model=prepared.model,
+            provider=prepared.provider.wire(),
+            parameters=prepared.generation_parameters,
+            inputHash=prepared.input_hash,
+            context=prepared.messages,
+            executionHash=prepared.execution_hash,
+            executionMode=MODE if multi else "single_model_continuation",
+            executionSpec=prepared.execution_spec.wire(),
+            replayPlanHash=prepared.replay_plan_hash,
+            toolCatalog=prepared.tool_catalog.wire() if prepared.tool_catalog else None,
+            replayPlan=prepared.preview()["replayPlan"],
+            contextReconstruction="normalized_recorded_prefix",
+            toolsRestored=False,
+            jobId=job.id,
+        )
         fork.status = "running"
         self.db.put("forks", fork)
         job.total = fork.replication_count
-        current = None
         failures = []
         try:
             for replication in range(fork.replication_count):
-                current = Trajectory(
-                    id=uid("traj"),
-                    experiment_id=parent.experiment_id,
-                    sample_id=f"{parent.sample_id} / branch {replication + 1}",
-                    model=model,
-                    task=parent.task,
-                    condition="intervention",
-                    status="running",
-                    loaded=True,
-                    parent_trajectory_id=parent.id,
-                    fork_id=fork.id,
-                    started_at=now(),
-                    metadata={
-                        "fidelity": "context_only",
-                        "replication": replication + 1,
-                        "executionMode": "single_model_continuation",
-                        "jobId": job.id,
-                    },
-                )
-                fork.child_trajectory_ids.append(current.id)
-                self.db.put("forks", fork)
-                self.db.put("trajectories", current)
-                copied = []
-                for index, event in enumerate(edited):
-                    cloned = copy.deepcopy(event)
-                    cloned.update(
-                        id=f"{current.id}:e{index}",
-                        trajectoryId=current.id,
-                        index=index,
-                        parentEventIds=[f"{current.id}:e{index - 1}"] if index else [],
-                    )
-                    cloned["metadata"]["sourceEventId"] = event["id"]
-                    copied.append(cloned)
-                for msg in appended:
-                    index = len(copied)
-                    copied.append(
-                        {
-                            "id": f"{current.id}:e{index}",
-                            "trajectoryId": current.id,
-                            "index": index,
-                            "type": msg["role"],
-                            "role": msg["role"],
-                            "content": msg["content"],
-                            "parentEventIds": [copied[-1]["id"]] if copied else [],
-                            "metadata": {"intervened": True},
-                        }
-                    )
-                self.db.put_many("events", copied)
-                current.event_count = len(copied)
-                self.db.put("trajectories", current)
-                parameters = dict(config.get("parameters", {}))
-                if isinstance(parameters.get("seed"), int):
-                    parameters["seed"] += replication
-                current.metadata["parameters"] = parameters
-                self.jobs.save(
-                    job,
-                    f"Replication {replication + 1}/{fork.replication_count}: model continuation started",
-                )
-                try:
-                    async with self.execution_lock:
-                        result = await self.adapter.run_fork(
-                            {
-                                "messages": messages,
-                                "model": model,
-                                "provider": provider.wire(),
-                                "parameters": parameters,
-                                "log_dir": str(
-                                    self.data_dir / "fork-logs" / fork.id / str(replication + 1)
-                                ),
-                                "sample_id": current.id,
-                                "metadata": {"tracelabForkId": fork.id, "fidelity": fork.fidelity},
-                            }
-                        )
-                    sample = result["sample"]
-                    # Only generated output follows the edited prefix. The log keeps the entire replay input.
-                    output = sample.get("output") or {}
-                    choices = output.get("choices") or []
-                    generated, sources = normalize_sample(
-                        current.id + ":continuation",
-                        {"messages": [choices[0]["message"]] if choices else [], "output": output},
-                    )
-                    offset = len(copied)
-                    for i, event in enumerate(generated):
-                        event.id = f"{current.id}:e{offset + i}"
-                        event.index = offset + i
-                        event.trajectory_id = current.id
-                        event.parent_event_ids = (
-                            [f"{current.id}:e{offset + i - 1}"] if offset + i else []
-                        )
-                    self.db.put_many("events", generated)
-                    self.db.put_many("source_records", sources)
-                    current.event_count += len(generated)
-                    current.status = "unknown"  # No inherited or invented outcome/score.
-                    usage = output.get("usage") or {}
-                    current.input_tokens = usage.get("input_tokens")
-                    current.output_tokens = usage.get("output_tokens")
-                    current.total_tokens = usage.get("total_tokens")
-                    current.metadata |= {
-                        "executionStatus": "complete",
-                        "logPath": result["logPath"],
-                        "outcomeNote": "Model continuation completed; task outcome not scored.",
-                    }
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    current.status = "error"
-                    current.metadata["executionError"] = str(exc)
-                    failures.append(str(exc))
-                    self.jobs.save(job, f"Replication {replication + 1} failed: {exc}")
-                current.completed_at = now()
-                from datetime import datetime
-
-                current.duration_ms = (
-                    datetime.fromisoformat(current.completed_at)
-                    - datetime.fromisoformat(current.started_at)
-                ).total_seconds() * 1000
-                self.db.put("trajectories", current)
+                child = await self.run_replication(prepared, replication, job)
+                if child.status == "error":
+                    failures.append(child.metadata.get("executionError", "Branch execution failed"))
                 job.completed += 1
                 self.jobs.save(job)
             if failures:
@@ -199,9 +78,166 @@ class ForkRunner:
             fork.metadata["error"] = (
                 "Cancelled" if isinstance(exc, asyncio.CancelledError) else str(exc)
             )
-            if current and current.status == "running":
-                current.status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
-                self.db.put("trajectories", current)
             raise
         finally:
             self.db.put("forks", fork)
+
+    async def run_replication(self, prepared: PreparedFork, replication: int, job: Job):
+        fork, parent = prepared.fork, prepared.parent
+        multi = prepared.execution_spec.continuation == "multi_step"
+        parameters = dict(prepared.generation_parameters)
+        if isinstance(parameters.get("seed"), int):
+            parameters["seed"] += replication
+        current = Trajectory(
+            id=uid("traj"),
+            experiment_id=parent.experiment_id,
+            sample_id=f"{parent.sample_id} / branch {replication + 1}",
+            model=prepared.model,
+            task=parent.task,
+            condition="intervention",
+            status="running",
+            loaded=True,
+            parent_trajectory_id=parent.id,
+            fork_id=fork.id,
+            started_at=now(),
+            metadata={
+                "fidelity": "context_only",
+                "replication": replication + 1,
+                "jobId": job.id,
+                "executionMode": MODE if multi else "single_model_continuation",
+                "parameters": parameters,
+                "executionHash": prepared.execution_identity(parameters),
+                "inputHash": prepared.input_hash,
+                "executionSpec": prepared.execution_spec.wire(),
+                "environment": "none",
+                "environmentRestored": False,
+                "toolExecution": False,
+                "toolsRestored": False,
+                "scoring": "none",
+            },
+        )
+        if multi:
+            current.metadata.update(
+                toolPolicy="recorded_replay",
+                replayMatchPolicy=POLICY,
+                toolCatalogHash=prepared.tool_catalog.canonical_hash,
+                replayPlanHash=prepared.replay_plan_hash,
+                provenanceNote=NOTE,
+            )
+        fork.child_trajectory_ids.append(current.id)
+        self.db.put("forks", fork)
+        self.db.put("trajectories", current)
+        execution = ReplayExecution(self.db, current, prepared) if multi else None
+        try:
+            copied = []
+            for index, event in enumerate(prepared.edited_events):
+                cloned = copy.deepcopy(event)
+                cloned.update(
+                    id=f"{current.id}:e{index}",
+                    trajectoryId=current.id,
+                    index=index,
+                    parentEventIds=[f"{current.id}:e{index - 1}"] if index else [],
+                )
+                cloned["metadata"]["sourceEventId"] = event["id"]
+                copied.append(cloned)
+            for msg in prepared.appended_messages:
+                index = len(copied)
+                copied.append(
+                    {
+                        "id": f"{current.id}:e{index}",
+                        "trajectoryId": current.id,
+                        "index": index,
+                        "type": msg["role"],
+                        "role": msg["role"],
+                        "content": msg["content"],
+                        "parentEventIds": [copied[-1]["id"]] if copied else [],
+                        "metadata": {"intervened": True},
+                    }
+                )
+            self.db.put_many("events", copied)
+            current.event_count = len(copied)
+            self.db.put("trajectories", current)
+            self.jobs.save(
+                job, f"Replication {replication + 1}/{fork.replication_count}: continuation started"
+            )
+            request = {
+                "messages": copy.deepcopy(prepared.messages),
+                "model": prepared.model,
+                "provider": prepared.provider.wire(),
+                "parameters": parameters,
+                "log_dir": str(self.data_dir / "fork-logs" / fork.id / str(replication + 1)),
+                "sample_id": current.id,
+                "metadata": {
+                    "tracelabForkId": fork.id,
+                    "fidelity": fork.fidelity,
+                    "executionHash": current.metadata["executionHash"],
+                    "executionMode": current.metadata["executionMode"],
+                },
+            }
+            current.metadata["logDirectory"] = request["log_dir"]
+            self.db.put("trajectories", current)
+            if multi:
+                request.update(execution=execution, tool_catalog=prepared.tool_catalog)
+            async with self.execution_lock:
+                result = await self.adapter.run_fork(request)
+            current.metadata["logPath"] = result["logPath"]
+            if multi:
+                execution.finish()
+            else:
+                self.save_single_output(current, result)
+        except asyncio.CancelledError:
+            if execution:
+                execution.finish("cancelled")
+            else:
+                current.status = "cancelled"
+                current.metadata.update(executionStatus="cancelled", terminationReason="cancelled")
+            raise
+        except Exception as exc:
+            current.status = "error"
+            current.metadata.update(
+                executionError=str(exc), executionStatus="error", terminationReason="model_error"
+            )
+            if execution:
+                execution.finish(
+                    "tool_resolution_error"
+                    if execution.termination == "tool_resolution_error"
+                    else "model_error"
+                )
+            self.jobs.save(job, f"Replication {replication + 1} failed: {exc}")
+        finally:
+            current.completed_at = now()
+            current.duration_ms = (
+                datetime.fromisoformat(current.completed_at)
+                - datetime.fromisoformat(current.started_at)
+            ).total_seconds() * 1000
+            self.db.put("trajectories", current)
+        return current
+
+    def save_single_output(self, current, result):
+        output = result["sample"].get("output") or {}
+        choices = output.get("choices") or []
+        generated, sources = normalize_sample(
+            current.id + ":continuation",
+            {"messages": [choices[0]["message"]] if choices else [], "output": output},
+        )
+        offset = current.event_count
+        for i, event in enumerate(generated):
+            event.id, event.index, event.trajectory_id = (
+                f"{current.id}:e{offset + i}",
+                offset + i,
+                current.id,
+            )
+            event.parent_event_ids = [f"{current.id}:e{offset + i - 1}"] if offset + i else []
+        self.db.put_many("source_records", sources)
+        self.db.put_many("events", generated)
+        current.event_count += len(generated)
+        current.status = "unknown"
+        usage = output.get("usage") or {}
+        current.input_tokens, current.output_tokens, current.total_tokens = (
+            usage.get(k) for k in ("input_tokens", "output_tokens", "total_tokens")
+        )
+        current.metadata.update(
+            executionStatus="complete",
+            terminationReason="assistant_completed",
+            outcomeNote="Model continuation completed; task outcome not scored.",
+        )

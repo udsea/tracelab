@@ -25,7 +25,38 @@ Manual walkthrough in the browser development build at 1280×800, dark and light
 
 ## Earlier record: semantic presentation and concurrent IPC
 
-### Local commands and results
+### 2026-09-25 — Multi-step recorded tool replay
+
+| Command | Observed result |
+| --- | --- |
+| `uv run --project backend pytest tests -q` | 181 passed, 3 opt-in public-corpus skips in 89.16 s |
+| `uv run --project backend ruff check backend tests scripts` | All checks passed |
+| `uv run --project backend ruff format --check backend tests scripts` | 99 files already formatted |
+| `pnpm test` | 46 passed in 11 files |
+| `pnpm build` | TypeScript/Vite passed; existing >500 kB chunk advisory remains (application 530.85 kB, charts 556.60 kB before gzip) |
+| `cargo check --locked --manifest-path src-tauri/Cargo.toml` | Passed |
+| `cargo test --locked --manifest-path src-tauri/Cargo.toml` | 4 passed, 0 failed |
+| `TRACELAB_REMOTE_TESTS=1 uv run --project backend pytest tests/test_remote_corpus.py -q -s` | 3 passed in 47.49 s; public read-only corpus, no model calls |
+| `python3 scripts/check_repository.py` | 251 indexed files, zero findings |
+| `git diff --cached --check` | Passed |
+
+Python used `UV_CACHE_DIR=/private/tmp/tracelab-uv-cache`; pnpm 10.30.3 used its locally cached CLI. The first frontend invocation accidentally discovered a separate `.claude/worktrees/ux-pass` checkout and failed with duplicate-React hook errors. Discovery is now explicitly scoped to `src/**/*.test.{ts,tsx}`; this checkout's full suite passes. The other worktree was not modified. Node's existing local-storage warning remains nonfatal.
+
+Coverage includes legacy execution defaults, rejected combinations, exact canonical arguments, sequential matching with no search-ahead, repeated identical calls, multi-call partial resolution, exhaustion/mismatch, bounds, exact stubs and permanent replay disablement, unknown task outcomes, provider errors, cancellation, token accounting, provenance/hashes, missing/dynamic/lossy schemas, unsupported observations, parent/raw immutability, pure previews and persisted resolution retrieval. UI tests exercise mode defaults, request serialization, bounds, capability blocking, plan summaries, source links, replay/stub badges and honest wording.
+
+Production Inspect execution was exercised with its local mock model, not a replacement execution UI. A three-generation branch received `alpha` and `2 passed`, wrote one native `.eval`, and retained generated call IDs. The native transcript contains three model events and zero executed tool/sandbox events. A generated shell command that would create a sentinel file was persisted as unmatched; no file appeared. A real cancellation test caught Inspect swallowing cancellation and returning an empty log list; the adapter now owns outer cancellation, joins Inspect cleanup, preserves the resolved prefix and marks the child cancelled. A subsequent test passed with no third model call.
+
+The ordinary RPC `forks.run` job path completed and scheduled only the existing cheap branch-analysis job. A complete service close/reopen retained the fork execution spec, child events, replay origin, ToolResolution rows and explicit raw replay records. Existing single-reply execution and synthetic-demo tests remain in the broad suite.
+
+### Real corpus preparation only
+
+Both cached and freshly imported `budget_siphon_H` from the pinned HF commit below were checked without model invocation. At fork event **#69**, explicit `ModelEvent.tools` recover four unchanged definitions: `shell`, `read_file`, `write_file`, `list_dir`. The strict tape contains **31 observations**, beginning with call **#72** and result **#74**. Catalog hash: `4ae5b90e0b1b92a2979b49f224507f6736eb2131e6bde86413945523ce5b9eb0`; plan hash: `2887f9fa6d8ddac962e82e8ed01d815fe32aacb5ce8d5d9d0eeb94af8073e488`.
+
+Preparation reports support. It created zero forks, children or resolution rows; raw source hashes stayed unchanged. All 14 opaque reasoning placeholders remain protected. The ignored local report is `.tracelab/replay-acceptance/report.json`; corpus bytes and local application databases are not committed. Public tests also rechecked lazy metadata/sample loading and offline pinning. Hugging Face retried one interrupted range response through its existing transport policy; all three tests passed.
+
+This establishes replay preparation for the real run and multi-step execution with deterministic local models. It does **not** establish compatibility with every provider's historical reasoning format, a paid continuation, restored environment, task score, causal effect or packaged-native UI acceptance. No paid model calls were made. Unsupported catalogs/observations fail closed. Full semantics and the PR2 boundary are in [fork execution](fork-execution.md). Hosted CI status must be checked on the eventual PR; local results alone do not establish it.
+
+## 2026-09-24 — Presentation/IPC commands (historical)
 
 | Command | Observed result |
 | --- | --- |

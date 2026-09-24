@@ -1,12 +1,9 @@
 import asyncio
-import json
 import os
 import re
 from urllib.parse import urlparse
 
-from tracelab.classifiers.runner import canonical_hash
 from tracelab.comparison.service import compare_events, group_comparison
-from tracelab.forks.context import GENERATION_PARAMETERS
 from tracelab.models.domain import (
     Experiment,
     Fork,
@@ -24,36 +21,28 @@ async def handle(service, method: str, p: dict):
             "trajectory_id IN (SELECT id FROM trajectories WHERE experiment_id IN (SELECT id FROM experiments WHERE workspace_id = ?))",
             [p["workspaceId"]],
         )
+    if method == "forks.resolutions":
+        return await asyncio.to_thread(
+            service.db.list,
+            "tool_resolutions",
+            "trajectory_id = ?",
+            [p["trajectoryId"]],
+            limit=1000,
+        )
     if method == "forks.preview":
-        # Read-only: the same reconstruction as forks.run, without persisting or executing.
-        fork = Fork.model_validate(p)
-        _, source, _, _, config, messages, model, provider = await service.forks.prepare(fork)
-        parameters = dict(config.get("parameters", {}))
-        unsupported = sorted(set(parameters) - GENERATION_PARAMETERS)
-        if unsupported:
-            raise ValueError(f"Unsupported fork generation parameter: {', '.join(unsupported)}")
-        return {
-            "sourceEventIndex": source["index"],
-            "model": model,
-            # Environment variable name only; the credential value never leaves Python.
-            "provider": {
-                "id": provider.id,
-                "name": provider.name,
-                "kind": provider.kind,
-                "baseUrl": provider.base_url,
-                "apiKeyEnv": provider.api_key_env,
-            },
-            "parameters": parameters,
-            "seedIncrementsByReplication": isinstance(parameters.get("seed"), int),
-            "replicationCount": fork.replication_count,
-            "messages": messages,
-            "inputHash": canonical_hash(messages),
-            "contextCharacters": len(json.dumps(messages, ensure_ascii=False)),
-        }
+        prepared = await service.forks.prepare(Fork.model_validate(p))
+        return prepared.preview()
     if method == "forks.run":
         fork = Fork.model_validate(p)
         if fork.fidelity != "context_only":
             raise ValueError("Checkpoint restoration is unavailable. Choose context-only.")
+        prepared = None
+        if fork.execution_spec.continuation == "multi_step":
+            prepared = await service.forks.prepare(fork)
+            if not prepared.replay_support["supported"]:
+                raise ValueError(
+                    f"{prepared.replay_support['reasonCode']}: {prepared.replay_support['reason']}"
+                )
         service.db.put("forks", fork)
         for index, item in enumerate(fork.interventions):
             service.db.put(
@@ -68,7 +57,7 @@ async def handle(service, method: str, p: dict):
 
         async def execute(j):
             try:
-                await service.forks.run(j, fork)
+                await service.forks.run(j, fork, prepared)
                 from tracelab.analysis.branches import schedule_branch_analysis
 
                 try:
