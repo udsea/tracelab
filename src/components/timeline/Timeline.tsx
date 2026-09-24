@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts/core'
-import { LineChart, ScatterChart } from 'echarts/charts'
+import { CustomChart, ScatterChart } from 'echarts/charts'
 import {
   GridComponent,
   TooltipComponent,
@@ -8,20 +8,16 @@ import {
   MarkLineComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import {
-  ChevronDown,
-  Crosshair,
-  Layers3,
-  Minus,
-  Plus,
-  RotateCcw,
-} from 'lucide-react'
-import { useClassifiers, useTimeline, useTrajectory } from '@/hooks/queries'
 import { useUI } from '@/stores/ui'
-import { Button } from '@/components/ui/button'
-import { AgentLanes } from './AgentLanes'
+import { useOverview, useSignals } from '@/features/analysis/queries'
+import {
+  activities as eventActivities,
+  coordinateMap,
+  type Scale,
+} from '@/features/analysis/coordinates'
+import { ExecutionGraph } from '@/features/analysis/ExecutionGraph'
 echarts.use([
-  LineChart,
+  CustomChart,
   ScatterChart,
   GridComponent,
   TooltipComponent,
@@ -37,37 +33,51 @@ const palette = [
   '#d08794',
   '#85bcb0',
 ]
-const escapeHtml = (value: string) =>
-  value.replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[
-        c
-      ]!,
-  )
 export function Timeline() {
-  const ui = useUI()
-  const query = useTimeline(ui.trajectoryId)
-  const trajectory = useTrajectory(ui.trajectoryId)
-  const classifiers = useClassifiers()
-  const ref = useRef<HTMLDivElement>(null)
-  const chart = useRef<echarts.ECharts | null>(null)
+  const ui = useUI(),
+    overview = useOverview(ui.trajectoryId),
+    signals = useSignals(ui.trajectoryId)
+  const ref = useRef<HTMLDivElement>(null),
+    chart = useRef<echarts.ECharts | null>(null)
   const [menu, setMenu] = useState(false)
-  const [zoom, setZoom] = useState(100)
-  const data = query.data
-  const total = trajectory.data?.trajectory.eventCount || 1
-  const lanes = useMemo(
-    () =>
-      [...new Set(data?.results.map((r) => r.classifierId) || [])].map(
-        (id) => ({
-          id,
-          label: classifiers.data?.find((c) => c.id === id)?.name || id,
-        }),
-      ),
-    [data, classifiers.data],
+  const [expanded, setExpanded] = useState(false)
+  const latest = useRef({
+    coords: coordinateMap([], 'events'),
+    points: [] as import('@/types/analysis').CoordinatePoint[],
+  })
+  const points = overview.data?.coordinates.points ?? []
+  const coords = useMemo(
+    () => coordinateMap(points, ui.scale),
+    [points, ui.scale],
   )
-  const visible = lanes.filter((l) => !ui.hiddenLanes.includes(l.id))
-  const height = 55 + visible.length * 35
+  latest.current = { coords, points }
+  const signalLanes = [
+    ...new Set(
+      signals.data?.map((s) => String(s.metadata.laneId ?? s.name)) ?? [],
+    ),
+  ]
+  const activities = [
+    'Outline',
+    'Model calls',
+    'Reasoning',
+    'Messages',
+    'Tool calls',
+    'Tool results',
+    'Environment',
+    'Artifacts',
+    'Errors',
+    'Scores',
+    'Checkpoints',
+    'Other / runtime',
+  ]
+  const availableActivities = activities.filter(
+    (l) =>
+      l === 'Outline' || points.some((p) => eventActivities(p).includes(l)),
+  )
+  const lanes = [...availableActivities, ...signalLanes].filter(
+    (l) => !ui.hiddenLanes.includes(l),
+  )
+  const height = Math.max(160, lanes.length * 24 + 34)
   useEffect(() => {
     if (!ref.current) return
     const instance = echarts.init(ref.current, undefined, {
@@ -76,319 +86,354 @@ export function Timeline() {
     chart.current = instance
     const observer = new ResizeObserver(() => instance.resize())
     observer.observe(ref.current)
-    instance.on('click', (params: unknown) => {
-      const point = params as {
-        data?: { value?: number[]; resultId?: string } | number[]
+    instance.on('click', (raw: unknown) => {
+      const p = raw as {
+        data?: {
+          eventIndex?: number
+          signalId?: string
+          range?: [number, number]
+          name?: string
+        }
       }
-      if (Array.isArray(point.data)) ui.jump(Math.round(point.data[0]))
-      else if (point.data?.value) {
-        ui.jump(Math.round(point.data.value[0]))
-        if (point.data.resultId) ui.set({ resultId: point.data.resultId })
+      if (p.data?.range) {
+        ui.focus(...p.data.range, p.data.name ?? 'Outline')
+        return
       }
+      if (p.data?.eventIndex != null) ui.jump(p.data.eventIndex)
+      if (p.data?.signalId) ui.set({ signalId: p.data.signalId })
+    })
+    let zoomTimer: ReturnType<typeof setTimeout> | undefined
+    instance.on('datazoom', (raw: unknown) => {
+      const payload = raw as {
+        start?: number
+        end?: number
+        batch?: { start?: number; end?: number }[]
+      }
+      const zoom = payload.batch?.[0] ?? payload
+      if (zoom.start == null || zoom.end == null) return
+      clearTimeout(zoomTimer)
+      zoomTimer = setTimeout(() => {
+        const { coords: current, points: all } = latest.current
+        const matched = all.filter(
+          (p) =>
+            current.at(p.index) >= (zoom.start! / 100) * current.max &&
+            current.at(p.index) <= (zoom.end! / 100) * current.max,
+        )
+        if (matched.length)
+          ui.focus(
+            matched.reduce((min, p) => Math.min(min, p.index), Infinity),
+            matched.reduce((max, p) => Math.max(max, p.index), -Infinity),
+            'Timeline zoom',
+          )
+      }, 150)
     })
     instance.getZr().on('click', (event) => {
-      if (!event.target && chart.current) {
-        const point = chart.current.convertFromPixel(
-          { xAxisIndex: 0 },
-          event.offsetX,
-        ) as number
-        if (Number.isFinite(point))
-          ui.jump(Math.max(0, Math.min(total - 1, Math.round(point))))
-      }
+      if (event.target) return
+      const coordinate = instance.convertFromPixel(
+        { xAxisIndex: 0 },
+        event.offsetX,
+      ) as number
+      if (Number.isFinite(coordinate))
+        ui.jump(latest.current.coords.nearest(coordinate))
     })
     return () => {
+      clearTimeout(zoomTimer)
       observer.disconnect()
       instance.dispose()
       chart.current = null
     }
-  }, [ui.trajectoryId, total])
+  }, [ui.trajectoryId])
   useEffect(() => {
-    if (!chart.current || !data) return
-    const muted = ui.theme === 'dark' ? '#68716c' : '#727970'
-    const grids = Array.from({ length: visible.length + 1 }, (_, i) => ({
-      left: 167,
-      right: 30,
-      top: i * 35 + 9,
-      height: 23,
-      containLabel: false,
-    }))
-    const axes = grids.map((_, i) => ({
-      type: 'value',
-      min: 0,
-      max: total - 1,
-      gridIndex: i,
-      show: i === visible.length,
-      axisLabel: { color: muted, fontSize: 9, margin: 11 },
-      axisLine: { show: false },
-      axisTick: { show: false },
-      splitLine: { show: false },
-    }))
-    const series: unknown[] = [
-      {
-        name: 'Events',
-        type: 'scatter',
-        xAxisIndex: 0,
-        yAxisIndex: 0,
-        symbolSize: [2, 9],
-        data: data.markers
-          .filter(
-            (m) =>
-              ['tool_call', 'error', 'checkpoint'].includes(m.type) || m.error,
-          )
-          .map((m) => ({
-            value: [m.index, 0.5],
-            itemStyle: {
-              color: m.error || m.type === 'error' ? '#d98782' : '#648778',
-            },
-            symbol: m.error ? 'triangle' : 'rect',
-          })),
-      },
-    ]
-    visible.forEach((lane, i) => {
-      const items = data.results.filter((r) => r.classifierId === lane.id)
-      series.push({
-        name: lane.label,
-        type: 'line',
-        xAxisIndex: i + 1,
-        yAxisIndex: i + 1,
-        symbol: 'circle',
-        symbolSize: 3,
-        smooth: false,
-        connectNulls: false,
-        lineStyle: { width: 1.5, color: palette[i % palette.length] },
-        itemStyle: { color: palette[i % palette.length] },
-        areaStyle: { color: palette[i % palette.length], opacity: 0.09 },
-        data: items.map((r) => ({
-          value: [r.startEventIndex, r.output?.score ?? null],
-          resultId: r.id,
-          end: r.endEventIndex,
-          label: r.error ? 'Classifier error' : r.output?.label || '',
-        })),
-        markLine: {
-          silent: true,
-          symbol: 'none',
-          label: { show: false },
-          lineStyle: { color: '#b5c7ad', opacity: 0.35, width: 1 },
-          data: [{ xAxis: ui.selectedIndex }],
+    const instance = chart.current
+    if (!instance) return
+    const [start, end] = ui.range
+      ? coords.extent(ui.range.start, ui.range.end)
+      : [0, coords.max]
+    const visible = points.filter(
+      (p) =>
+        !ui.range || (p.index >= ui.range.start && p.index <= ui.range.end),
+    )
+    const buckets = new Map<
+      string,
+      { value: number[]; eventIndex: number; count: number; name: string }
+    >()
+    const aggregate = visible.length > 300
+    for (const p of visible) {
+      for (const lane of eventActivities(p)) {
+        const y = lanes.indexOf(lane)
+        if (y < 0) continue
+        const x = coords.at(p.index),
+          bucket = aggregate
+            ? Math.floor(((x - start) / Math.max(1, end - start)) * 180)
+            : p.index
+        const key = `${y}:${bucket}`
+        const old = buckets.get(key)
+        if (old) old.count++
+        else
+          buckets.set(key, {
+            value: [x, y],
+            eventIndex: p.index,
+            count: 1,
+            name: `${lane} · #${p.index}${p.elapsedMs === null && ui.scale === 'time' ? ' · timestamp unavailable' : ''}`,
+          })
+      }
+    }
+    const intervals = (signals.data ?? [])
+      .filter((s) => lanes.includes(String(s.metadata.laneId ?? s.name)))
+      .map((s) => ({
+        value: [
+          Math.min(coords.at(s.startEventIndex), coords.at(s.endEventIndex)),
+          lanes.indexOf(String(s.metadata.laneId ?? s.name)),
+          Math.max(coords.at(s.startEventIndex), coords.at(s.endEventIndex)),
+        ],
+        signalId: s.id,
+        eventIndex: s.startEventIndex,
+        name: `${s.name} · #${s.startEventIndex}–${s.endEventIndex} · ${s.score ?? s.label ?? 'unscored'}`,
+        itemStyle: {
+          color:
+            palette[
+              signalLanes.indexOf(String(s.metadata.laneId ?? s.name)) %
+                palette.length
+            ],
+          opacity:
+            s.score == null
+              ? 0.65
+              : 0.35 + Math.min(1, Math.abs(s.score)) * 0.65,
         },
-      })
-    })
-    chart.current.setOption(
+      }))
+    const structure = (overview.data?.outline ?? [])
+      .filter(
+        (n) =>
+          lanes.includes('Outline') &&
+          (n.kind === 'segment' || n.kind === 'episode' || n.kind === 'moment'),
+      )
+      .map((n) => ({
+        value: [
+          Math.min(coords.at(n.startEventIndex), coords.at(n.endEventIndex)),
+          lanes.indexOf('Outline'),
+          Math.max(coords.at(n.startEventIndex), coords.at(n.endEventIndex)),
+        ],
+        range: [n.startEventIndex, n.endEventIndex],
+        name: `${n.kind}: ${n.label}`,
+        itemStyle: {
+          color: n.kind === 'moment' ? '#d08794' : '#648778',
+          opacity: 0.5,
+        },
+      }))
+    instance.setOption(
       {
         animation: false,
-        grid: grids,
-        xAxis: axes,
-        yAxis: grids.map((_, i) => ({
+        grid: { left: 170, right: 30, top: 8, bottom: 26 },
+        xAxis: {
           type: 'value',
           min: 0,
-          max: 1,
-          gridIndex: i,
-          show: false,
-        })),
+          max: coords.max,
+          axisLabel: {
+            color: '#8b978e',
+            fontSize: 10,
+            formatter: (v: number) =>
+              ui.scale === 'time'
+                ? v > coords.maxTime
+                  ? 'untimed'
+                  : `${(v / 1000).toFixed(0)}s`
+                : String(Math.round(v)),
+          },
+          splitLine: { show: false },
+        },
+        yAxis: {
+          type: 'category',
+          inverse: true,
+          data: lanes.map(
+            (l) =>
+              signals.data?.find(
+                (s) => String(s.metadata.laneId ?? s.name) === l,
+              )?.name ?? l,
+          ),
+          axisLabel: {
+            color: '#8b978e',
+            fontSize: 10,
+            width: 150,
+            overflow: 'truncate',
+          },
+          axisTick: { show: false },
+          axisLine: { show: false },
+        },
         tooltip: {
           trigger: 'item',
-          backgroundColor: ui.theme === 'dark' ? '#222923' : '#fff',
-          borderColor: '#52604f',
-          textStyle: {
-            color: ui.theme === 'dark' ? '#d9e3d5' : '#1c2b1c',
-            fontSize: 11,
-          },
-          formatter: (p: {
-            seriesName: string
-            data: { value: number[]; end?: number; label?: string }
-          }) =>
-            `${escapeHtml(p.seriesName)}<br/>Events ${p.data.value[0]}${p.data.end != null ? `–${p.data.end}` : ''}${p.data.end != null ? `<br/>Score: ${p.data.value[1]} · ${escapeHtml(p.data.label || '')}<br/>Click to inspect evidence` : ''}`,
+          renderMode: 'richText',
+          formatter: (p: { data: { name: string; count?: number } }) =>
+            `${p.data.name}${p.data.count && p.data.count > 1 ? ` · ${p.data.count} events in bin` : ''}`,
         },
         dataZoom: [
           {
             type: 'inside',
-            xAxisIndex: grids.map((_, i) => i),
-            start: Math.max(
-              0,
-              Math.min(100 - zoom, (ui.selectedIndex / total) * 100 - zoom / 2),
-            ),
-            end: Math.min(
-              100,
-              Math.max(zoom, (ui.selectedIndex / total) * 100 + zoom / 2),
-            ),
+            startValue: start,
+            endValue: Math.max(start + 0.01, end),
             zoomOnMouseWheel: 'ctrl',
             moveOnMouseWheel: false,
+            filterMode: 'weak',
           },
         ],
-        series,
+        series: [
+          {
+            type: 'scatter',
+            symbol: 'rect',
+            symbolSize: aggregate ? [5, 12] : [3, 12],
+            data: [...buckets.values()],
+            itemStyle: { color: '#789882' },
+            markLine: {
+              silent: true,
+              symbol: 'none',
+              label: { show: false },
+              data: [{ xAxis: coords.at(ui.selectedIndex) }],
+            },
+          },
+          {
+            type: 'custom',
+            renderItem: (
+              _params: unknown,
+              api: {
+                value: (i: number) => number
+                coord: (v: number[]) => number[]
+                style: () => object
+              },
+            ) => {
+              const a = api.coord([api.value(0), api.value(1)]),
+                b = api.coord([api.value(2), api.value(1)])
+              return {
+                type: 'rect',
+                shape: {
+                  x: a[0],
+                  y: a[1] - 6,
+                  width: Math.max(3, b[0] - a[0]),
+                  height: 12,
+                },
+                style: api.style(),
+              }
+            },
+            encode: { x: [0, 2], y: 1 },
+            data: [...structure, ...intervals],
+          },
+        ],
       },
       true,
     )
-    chart.current.resize()
+    instance.resize()
   }, [
-    data,
-    visible.map((v) => v.id).join(','),
+    overview.data,
+    signals.data,
+    ui.range,
+    ui.scale,
+    ui.hiddenLanes,
     ui.selectedIndex,
-    ui.theme,
-    total,
-    zoom,
     height,
   ])
   if (!ui.trajectoryId) return null
   return (
-    <section className="timeline-panel">
+    <section
+      className="timeline-panel"
+      style={expanded ? { height: '48vh' } : undefined}
+    >
       <div className="timeline-heading">
+        <strong>Overview · {points.length} events</strong>
         <div>
-          <Crosshair size={14} />
-          <strong>Trajectory timeline</strong>
-          <span>{total} events</span>
-        </div>
-        <div>
-          <span className="timeline-hint">
-            Click to navigate · Ctrl + scroll to zoom
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Zoom out"
-            onClick={() => setZoom((z) => Math.min(100, z * 1.5))}
+          <select
+            aria-label="Timeline scale"
+            value={ui.scale}
+            onChange={(e) => ui.set({ scale: e.target.value as Scale })}
           >
-            <Minus size={13} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Zoom in"
-            onClick={() => setZoom((z) => Math.max(5, z / 1.5))}
+            <option value="events">Events</option>
+            <option value="time">Elapsed time</option>
+            <option value="calls">Model calls</option>
+          </select>
+          <button
+            onClick={() => ui.backRange()}
+            disabled={!ui.rangeHistory.length}
           >
-            <Plus size={13} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Reset zoom"
-            onClick={() => setZoom(100)}
+            Previous range
+          </button>
+          <button
+            onClick={() =>
+              ui.focus(0, Math.max(0, points.length - 1), 'Full run')
+            }
           >
-            <RotateCcw size={12} />
-          </Button>
-          <div className="lane-picker">
-            <button
-              className="lane-picker-button"
-              onClick={() => setMenu(!menu)}
-            >
-              <Layers3 size={12} />
-              Lanes
-              <ChevronDown size={12} />
-            </button>
-            {menu && (
-              <div className="lane-menu">
-                {lanes.map((l) => (
-                  <label key={l.id}>
-                    <input
-                      type="checkbox"
-                      checked={!ui.hiddenLanes.includes(l.id)}
-                      onChange={() =>
-                        ui.set({
-                          hiddenLanes: ui.hiddenLanes.includes(l.id)
-                            ? ui.hiddenLanes.filter((x) => x !== l.id)
-                            : [...ui.hiddenLanes, l.id],
-                        })
-                      }
-                    />
-                    {l.label}
-                  </label>
-                ))}
-                {lanes.length === 0 && (
-                  <span>Run a classifier to add a signal lane.</span>
-                )}
-              </div>
-            )}
-          </div>
+            Reset
+          </button>
+          <button
+            onClick={() => {
+              const width = Math.max(
+                10,
+                ((ui.range?.end ?? points.length - 1) -
+                  (ui.range?.start ?? 0)) /
+                  2,
+              )
+              ui.focus(
+                Math.max(0, Math.floor(ui.selectedIndex - width / 2)),
+                Math.min(
+                  points.length - 1,
+                  Math.ceil(ui.selectedIndex + width / 2),
+                ),
+                'Zoom around selection',
+              )
+            }}
+          >
+            Zoom in
+          </button>
+          <button onClick={() => setMenu(!menu)}>Lanes</button>
+          <button onClick={() => setExpanded(!expanded)}>
+            {expanded ? 'Collapse' : 'Expand'}
+          </button>
+          <button
+            onClick={() =>
+              ui.set({
+                hiddenLanes: [...new Set([...ui.hiddenLanes, ...activities])],
+              })
+            }
+          >
+            Signals only
+          </button>
+          <button onClick={() => ui.set({ hiddenLanes: [] })}>All lanes</button>
         </div>
       </div>
+      {ui.scale === 'time' && coords.hasGutter && (
+        <p className="timeline-fidelity">
+          {overview.data?.coordinates.missingTimestamps} untimed events in
+          ordinal gutter after the time axis; no timestamps inferred.
+        </p>
+      )}
+      {ui.scale === 'calls' && (
+        <p className="timeline-fidelity">
+          {overview.data?.coordinates.modelCallFidelity}
+        </p>
+      )}
+      {menu && (
+        <div className="analysis-lane-menu">
+          {[...activities, ...signalLanes].map((l) => (
+            <label key={l}>
+              <input
+                type="checkbox"
+                checked={!ui.hiddenLanes.includes(l)}
+                onChange={() =>
+                  ui.set({
+                    hiddenLanes: ui.hiddenLanes.includes(l)
+                      ? ui.hiddenLanes.filter((x) => x !== l)
+                      : [...ui.hiddenLanes, l],
+                  })
+                }
+              />
+              {signals.data?.find(
+                (s) => String(s.metadata.laneId ?? s.name) === l,
+              )?.name ?? l}
+            </label>
+          ))}
+        </div>
+      )}
+      {overview.error && (
+        <p className="inline-error">{overview.error.message}</p>
+      )}
       <div className="timeline-scroll">
-        {data && <AgentLanes markers={data.markers} total={total} />}
-        <div className="phase-lane">
-          <span className="timeline-lane-label">Phases</span>
-          <div className="phase-track">
-            {data?.segments
-              .filter((s) => !s.parentId)
-              .map((s, i) => (
-                <button
-                  className={`phase-block phase-block-${i % 4}`}
-                  style={{
-                    left: `${(s.startEvent / total) * 100}%`,
-                    width: `${((s.endEvent - s.startEvent + 1) / total) * 100}%`,
-                  }}
-                  key={s.id}
-                  title={`${s.label}: #${s.startEvent}–${s.endEvent}`}
-                  onClick={() => {
-                    ui.jump(s.startEvent)
-                    ui.set({
-                      range: {
-                        start: s.startEvent,
-                        end: s.endEvent,
-                        label: s.label,
-                      },
-                    })
-                  }}
-                >
-                  {s.label}
-                </button>
-              ))}
-          </div>
-        </div>
-        <div className="timeline-chart-wrap" style={{ height }}>
-          <div className="timeline-labels">
-            <span>Tools & errors</span>
-            {visible.map((l, i) => (
-              <span key={l.id}>
-                <i style={{ background: palette[i % palette.length] }} />
-                {l.label}
-              </span>
-            ))}
-          </div>
-          <div className="timeline-chart" style={{ height }} ref={ref} />
-        </div>
-        {data?.annotations.length ||
-        data?.forks.length ||
-        data?.checkpoints.length ? (
-          <div className="annotation-lane">
-            <span className="timeline-lane-label">Notes & branches</span>
-            <div className="phase-track">
-              {data.annotations.map((a) => (
-                <button
-                  key={a.id}
-                  className="annotation-tick"
-                  style={{ left: `${(a.startEventIndex / total) * 100}%` }}
-                  title={a.label}
-                  onClick={() => ui.jump(a.startEventIndex)}
-                >
-                  ⚑
-                </button>
-              ))}
-              {data.forks.map((f) => (
-                <button
-                  key={f.id}
-                  className="annotation-tick"
-                  style={{
-                    left: `${(Number(f.metadata.sourceEventIndex || 0) / total) * 100}%`,
-                  }}
-                  title="Fork point"
-                  onClick={() => ui.set({ section: 'forks' })}
-                >
-                  ⑂
-                </button>
-              ))}
-              {data.checkpoints.map((c) => (
-                <button
-                  key={c.id}
-                  className="annotation-tick"
-                  style={{ left: `${(c.index / total) * 100}%` }}
-                  title="Checkpoint marker · restoration unavailable"
-                  onClick={() => ui.jump(c.index)}
-                >
-                  ◇
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <div ref={ref} style={{ height }} />
+        {overview.data && <ExecutionGraph overview={overview.data} />}
       </div>
     </section>
   )

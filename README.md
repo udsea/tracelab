@@ -68,7 +68,7 @@ This mode does **not** resume the original tool implementations, solver/agent sc
 - Invalid classifier JSON is retried exactly once. Failed windows retain both attempts and a visible error. There is no JSON repair, label coercion, or invented evidence.
 - Evidence IDs must belong to the exact input window. Cache identity includes the entire definition, endpoint/provider, model, exact prompt/input, schema, and generation parameters.
 - Timeline, filters, and aggregate views use the most recent run for each trajectory/classifier. Historical results and run snapshots remain stored. Aggregates average within each trajectory first; long trajectories do not get extra group weight simply for having more windows.
-- LLM segmentation uses explicit 1,200-character event previews; its complete input prompt is retained. A validated segmentation covers the entire trajectory without phase overlaps/gaps. Failed regeneration preserves existing phases.
+- LLM segmentation uses bounded semantic event summaries, including tool outcomes, agent identity, recorded parents and timing; its complete input prompt is retained. A validated segmentation covers the entire trajectory without phase overlaps/gaps. Failed regeneration preserves existing phases.
 - Original `.eval` files are never written. Changed files are indexed as separate versions; unopened trajectories refuse a changed source until it is re-imported. Loaded normalized snapshots and analysis remain intact.
 
 ## Storage and architecture
@@ -114,5 +114,7 @@ python3 scripts/smoke_bundle.py
 ```
 
 Tests cover native `.eval` lazy import, immutable source logs, source-version changes, normalization, cache identity, bounded classifier concurrency, cancellation, strict schema/evidence validation, provenance, latest-run aggregate semantics, search/filtering, segmentation, intervention validation, heuristic divergence, restart recovery, and real Inspect execution/log writing with its local mock model. The bundle smoke check creates an isolated synthetic workspace, verifies paginated events and linked classifier evidence, compares conditions, and reopens the populated database in a second packaged process. Provider HTTP contracts use deterministic local test doubles. Paid model endpoints are not exercised by the tests.
+
+The [analysis guide](docs/analysis.md) covers the shared signal model, run outline, timeline scales, detector semantics, artifact hooks and real-run acceptance limits.
 
 See [architecture notes](docs/architecture.md) and [validation record](docs/validation.md).

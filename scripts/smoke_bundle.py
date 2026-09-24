@@ -95,6 +95,34 @@ def main():
                 },
             )
             assert [g["trajectories"] for g in groups] == [4, 2]
+            overview = rpc("analysis.overview", {"trajectoryId": tid})
+            assert len(overview["coordinates"]["points"]) == 487
+            assert overview["outline"]
+            definition = rpc(
+                "analysis.save",
+                {
+                    "name": "Packaged rule smoke",
+                    "detectorType": "rule",
+                    "parameters": {"contains": ["evaluator", "tests"]},
+                },
+            )
+            analysis_job = rpc(
+                "analysis.run", {"definitionId": definition["id"], "trajectoryIds": [tid]}
+            )
+            deadline = time.monotonic() + 30
+            while True:
+                analysis_job = rpc("jobs.get", {"id": analysis_job["id"]})
+                assert analysis_job["status"] not in ("failed", "cancelled"), analysis_job
+                if analysis_job["status"] == "complete":
+                    break
+                if time.monotonic() > deadline:
+                    raise TimeoutError("Packaged rule detector")
+                time.sleep(0.1)
+            shared_signals = rpc("analysis.signals", {"trajectoryId": tid})
+            rule_signal = next(s for s in shared_signals if s["sourceType"] == "rule")
+            detail = rpc("analysis.signal", {"trajectoryId": tid, "id": rule_signal["id"]})
+            assert detail["signal"]["provenance"]["implementationHash"]
+            assert len(detail["signal"]["provenance"]["inputManifest"]["inputEventIds"]) == 487
             source_workspace = rpc("workspaces.create", {"name": "Packaged format smoke"})
             fixture = Path(data) / "atif.json"
             fixture.write_text(
@@ -134,6 +162,8 @@ def main():
             assert rpc("sources.info", {"trajectoryId": source_tid})["format"] == "atif"
         with sidecar(binary, data) as rpc:
             assert workspace["id"] in [w["id"] for w in rpc("workspaces.list")]
+            assert rpc("analysis.overview", {"trajectoryId": tid}) == overview
+            assert len(rpc("analysis.signals", {"trajectoryId": tid})) == len(shared_signals)
             assert rpc("trajectories.list", {"workspaceId": workspace["id"]})["total"] == 6
             assert rpc("events.get", {"id": evidence["event"]["id"]})["event"] == evidence["event"]
             assert rpc("trajectories.get", {"id": source_tid})["trajectory"]["loaded"]

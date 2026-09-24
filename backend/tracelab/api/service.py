@@ -53,6 +53,7 @@ class Service:
         from tracelab.api import (
             routes_analysis,
             routes_execution,
+            routes_research,
             routes_sources,
             routes_trajectory,
             routes_workspace,
@@ -99,6 +100,8 @@ class Service:
         handler = handlers.get(method)
         if method in routes_sources.METHODS:
             handler = routes_sources.handle
+        if method in routes_research.METHODS:
+            handler = routes_research.handle
         if handler is None:
             raise ValueError(f"Unknown method: {method}")
         return await handler(self, method, p)

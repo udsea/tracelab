@@ -166,6 +166,8 @@ class Annotation(AppModel):
 
 
 class ClassifierDefinition(AppModel):
+    version: int = Field(default=1, ge=1)
+    previous_id: str | None = None
     id: str = Field(default_factory=lambda: uid("clf"))
     workspace_id: str | None = None
     name: str = Field(min_length=1)
@@ -187,6 +189,11 @@ class ClassifierDefinition(AppModel):
 
 
 class ClassifierOutput(AppModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="allow")
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    observability: Literal["explicit", "behavioral", "mixed", "none"] | None = None
+    counterevidence_event_ids: list[str] = Field(default_factory=list)
+    alternative_explanations: list[str] = Field(default_factory=list)
     # Provider JSON uses snake_case; application models use camelCase on the wire.
     label: str | None = None
     score: float | None = Field(default=None, ge=0, le=1)
@@ -275,7 +282,7 @@ class Fork(AppModel):
 
 class Job(AppModel):
     id: str = Field(default_factory=lambda: uid("job"))
-    kind: Literal["import", "classifier", "fork", "segmentation", "index"]
+    kind: Literal["import", "classifier", "fork", "segmentation", "index", "analysis"]
     name: str
     status: Literal["queued", "running", "complete", "failed", "cancelled"] = "queued"
     completed: int = 0

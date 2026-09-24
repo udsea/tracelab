@@ -130,15 +130,33 @@ class ClassifierRunner:
                         parsed = decode_output(response["output"])
                         validate(parsed, schema)
                         output = ClassifierOutput.model_validate(parsed, strict=True)
-                        if definition.return_score and output.score is None:
+                        if (
+                            not definition.output_schema
+                            and definition.return_score
+                            and output.score is None
+                        ):
                             raise ValueError("Required score missing")
-                        if definition.return_rationale and output.rationale is None:
+                        if (
+                            not definition.output_schema
+                            and definition.return_rationale
+                            and output.rationale is None
+                        ):
                             raise ValueError("Required rationale missing")
-                        if definition.labels and output.label not in definition.labels:
+                        if (
+                            not definition.output_schema
+                            and definition.labels
+                            and output.label not in definition.labels
+                        ):
                             raise ValueError("Label is not in the classifier's label set")
-                        if definition.return_evidence and "evidence_event_ids" not in parsed:
+                        if (
+                            not definition.output_schema
+                            and definition.return_evidence
+                            and "evidence_event_ids" not in parsed
+                        ):
                             raise ValueError("Required evidence_event_ids missing")
-                        if set(output.evidence_event_ids) - {e["id"] for e in window}:
+                        if set(output.evidence_event_ids + output.counterevidence_event_ids) - {
+                            e["id"] for e in window
+                        }:
                             raise ValueError("Evidence refers to events outside the input")
                         result.output = output
                         result.error = None

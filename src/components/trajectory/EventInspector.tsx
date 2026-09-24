@@ -1,3 +1,4 @@
+import { AnalysisStack } from '@/features/analysis/SignalInspector'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -86,6 +87,7 @@ export function EventInspector() {
         ))}
       </div>
       <div className="inspector-content">
+        <AnalysisStack />
         {query.isLoading && <Loading text="Loading event…" />}
         {query.error && <ErrorState error={query.error} />}
         {!id && <Empty title="No event selected" />}
@@ -195,7 +197,7 @@ export function EventInspector() {
             >
               <summary>
                 <FileJson2 size={12} />
-                Open raw Inspect record
+                Open raw source record
               </summary>
               <pre>
                 {raw.isLoading

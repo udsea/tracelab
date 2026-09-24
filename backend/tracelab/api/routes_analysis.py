@@ -1,6 +1,6 @@
 from tracelab.classifiers.runner import output_schema
 from tracelab.ingestion.service import ensure_loaded
-from tracelab.models.domain import Annotation, ClassifierDefinition, Job, Segment, now
+from tracelab.models.domain import Annotation, ClassifierDefinition, Job, Segment, now, uid
 from tracelab.segmentation.service import run_segmentation
 from tracelab.storage.queries import list_trajectories
 
@@ -44,16 +44,35 @@ async def handle(service, method: str, p: dict):
             ),
         )
     if method == "classifiers.list":
-        return service.db.list(
+        definitions = service.db.list(
             "classifier_definitions",
             "workspace_id IS NULL OR workspace_id = ?",
             [p.get("workspaceId")],
         )
+        # Preserve historical records; the library offers the revised research templates.
+        return [
+            d for d in definitions if not (d.get("isTemplate") and d["id"].startswith("template_"))
+        ]
     if method == "classifiers.save":
         item = ClassifierDefinition.model_validate(p)
         if item.workspace_id:
             service.db.get("workspaces", item.workspace_id)
         output_schema(item)
+        old = service.db.maybe("classifier_definitions", item.id)
+        if (
+            old
+            and old != item.wire()
+            and (
+                service.db.list(
+                    "classifier_runs", "(data->'metadata'->>'classifierId') = ?", [item.id], limit=1
+                )
+                or service.db.list("classifier_results", "classifier_id = ?", [item.id], limit=1)
+            )
+        ):
+            item.previous_id = item.id
+            item.version = old.get("version", 1) + 1
+            item.id = uid("clf")
+            item.created_at = now()
         return service.db.put("classifier_definitions", item)
     if method == "classifiers.run":
         definition = ClassifierDefinition.model_validate(

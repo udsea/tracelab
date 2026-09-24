@@ -20,7 +20,8 @@ import { WorkspaceDialogs } from '@/features/workspace/Dialogs'
 import { TrajectoryView } from '@/components/trajectory/TrajectoryView'
 import { EventInspector } from '@/components/trajectory/EventInspector'
 import { Timeline } from '@/components/timeline/Timeline'
-import { ClassifierWorkspace } from '@/features/classifiers/ClassifierWorkspace'
+import { AnalysisWorkspace } from '@/features/analysis/AnalysisWorkspace'
+import { SignalInspector } from '@/features/analysis/SignalInspector'
 import { ForkDialog, ForkWorkspace } from '@/features/forks/ForkLab'
 import { ComparisonWorkspace } from '@/features/comparisons/ComparisonWorkspace'
 import { TrajectoryBrowser } from '@/features/trajectories/TrajectoryBrowser'
@@ -73,9 +74,13 @@ export function App() {
         'events',
         'event',
         'timeline',
+        'overview',
+        'signals',
+        'signal',
         'forks',
         'browse',
         'comparison',
+        'analysis-comparison',
         'search',
         'trajectory-picker',
         'trajectory-summary',
@@ -156,7 +161,9 @@ export function App() {
                 <strong>
                   {ui.section === 'trajectory'
                     ? 'Explorer'
-                    : ui.section[0].toUpperCase() + ui.section.slice(1)}
+                    : ui.section === 'classifiers'
+                      ? 'Analysis'
+                      : ui.section[0].toUpperCase() + ui.section.slice(1)}
                 </strong>
               </span>
               <div className="topbar-spacer" />
@@ -222,7 +229,7 @@ export function App() {
                     <Timeline />
                   </>
                 ) : ui.section === 'classifiers' ? (
-                  <ClassifierWorkspace />
+                  <AnalysisWorkspace />
                 ) : ui.section === 'forks' ? (
                   <ForkWorkspace />
                 ) : ui.section === 'compare' ? (
@@ -265,6 +272,7 @@ export function App() {
         <WorkspaceDialogs />
         <ForkDialog />
         <EvidenceDialog />
+        <SignalInspector />
         {ui.toast && (
           <div className="toast" role="status">
             <span>{ui.toast}</span>
