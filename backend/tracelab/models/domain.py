@@ -268,6 +268,44 @@ Intervention = Annotated[
 ]
 
 
+class ToolStub(AppModel):
+    id: str = Field(min_length=1)
+    tool_name: str = Field(min_length=1)
+    arguments: Any
+    result: Any = None
+    error: Any | None = None
+
+
+class ForkExecutionSpec(AppModel):
+    continuation: Literal["single_turn", "multi_step"] = "single_turn"
+    tool_policy: Literal["disabled", "recorded_replay", "stubbed", "simulated", "live"] = "disabled"
+    environment: Literal["none", "reconstructed", "checkpoint", "live"] = "none"
+    scoring: Literal["none", "rerun", "custom"] = "none"
+    unmatched_tool_policy: Literal["fail", "stub", "simulate"] = "fail"
+    max_model_steps: int = Field(default=8, ge=1, le=100)
+    max_tool_calls: int = Field(default=32, ge=1, le=1000)
+    tool_stubs: list[ToolStub] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def supported(self):
+        if self.environment != "none" or self.scoring != "none":
+            raise ValueError("Environment restoration and scoring are unsupported")
+        if self.continuation == "single_turn":
+            if (
+                self.tool_policy != "disabled"
+                or self.unmatched_tool_policy != "fail"
+                or self.tool_stubs
+            ):
+                raise ValueError("Single reply requires disabled tools and no stubs")
+        elif self.tool_policy != "recorded_replay" or self.unmatched_tool_policy == "simulate":
+            raise ValueError("Multi-step requires recorded_replay with fail or stub policy")
+        if self.tool_stubs and self.unmatched_tool_policy != "stub":
+            raise ValueError("Tool stubs require the stub unmatched policy")
+        if len({s.id for s in self.tool_stubs}) != len(self.tool_stubs):
+            raise ValueError("Stub IDs must be unique")
+        return self
+
+
 class Fork(AppModel):
     id: str = Field(default_factory=lambda: uid("fork"))
     source_trajectory_id: str
@@ -280,6 +318,7 @@ class Fork(AppModel):
     child_trajectory_ids: list[str] = Field(default_factory=list)
     status: Literal["configured", "running", "complete", "failed"] = "configured"
     metadata: dict[str, Any] = Field(default_factory=dict)
+    execution_spec: ForkExecutionSpec = Field(default_factory=ForkExecutionSpec)
 
 
 class Job(AppModel):

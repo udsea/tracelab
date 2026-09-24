@@ -1,3 +1,11 @@
+import {
+  defaultExecution,
+  ExecutionOptions,
+  ExecutionSummary,
+  parseStubs,
+  ReplaySummary,
+  type ReplayPreview,
+} from './ExecutionOptions'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -22,12 +30,7 @@ import {
 import { notify, useUI } from '@/stores/ui'
 import { rpc } from '@/lib/api'
 import { eventLabel } from '@/lib/utils'
-import type {
-  Fork,
-  Intervention,
-  Job,
-  TrajectoryEvent,
-} from '@/types/domain'
+import type { Fork, Intervention, Job, TrajectoryEvent } from '@/types/domain'
 import {
   buildGenerationParameters,
   defaultGeneration,
@@ -82,7 +85,7 @@ const useEventAt = (trajectoryId: string, index: number, enabled = true) =>
     enabled,
   })
 
-interface Preview {
+interface Preview extends ReplayPreview {
   sourceEventIndex: number
   model: string
   provider: {
@@ -118,6 +121,10 @@ export function ForkForm({
       : source.data?.trajectory.model || '',
   )
   const [replications, setReplications] = useState(1)
+  const [execution, setExecution] = useState(defaultExecution)
+  const [stubText, setStubText] = useState('[]')
+  const stubs = parseStubs(stubText)
+  const multi = execution.continuation === 'multi_step'
   const [generation, setGeneration] = useState(defaultGeneration)
   const [items, setItems] = useState<EditorIntervention[] | null>(null)
   const [nextKey, setNextKey] = useState(1)
@@ -131,7 +138,21 @@ export function ForkForm({
   const action = useAction<Job>('forks.run', ['jobs', 'forks', 'trajectories'])
   const params = buildGenerationParameters(generation)
   const built = toInterventions(trajectoryId, items ?? [])
-  const localError = params.error ?? built.error
+  const localError =
+    params.error ??
+    built.error ??
+    (multi && execution.unmatchedToolPolicy === 'stub'
+      ? stubs.error
+      : undefined) ??
+    (multi &&
+    (!Number.isInteger(execution.maxModelSteps) ||
+      execution.maxModelSteps < 1 ||
+      execution.maxModelSteps > 100 ||
+      !Number.isInteger(execution.maxToolCalls) ||
+      execution.maxToolCalls < 1 ||
+      execution.maxToolCalls > 1000)
+      ? 'Enter valid model/tool call bounds.'
+      : undefined)
   const replicationCount = Math.max(1, Math.min(100, replications || 1))
   const request = {
     sourceTrajectoryId: trajectoryId,
@@ -140,6 +161,11 @@ export function ForkForm({
     interventions: built.interventions,
     modelOverrides: { provider, model, parameters: params.parameters },
     replicationCount,
+    executionSpec: {
+      ...execution,
+      toolStubs:
+        multi && execution.unmatchedToolPolicy === 'stub' ? stubs.stubs : [],
+    },
   }
   const requestKey = JSON.stringify(request)
   const [debounced, setDebounced] = useState(requestKey)
@@ -182,8 +208,8 @@ export function ForkForm({
         <div>
           <strong>sample_{source.data?.trajectory.sampleId}</strong>
           <span>
-            Prefix through event #{selectedIndex} · {selectedIndex + 1}{' '}
-            recorded event{selectedIndex === 0 ? '' : 's'}
+            Prefix through event #{selectedIndex} · {selectedIndex + 1} recorded
+            event{selectedIndex === 0 ? '' : 's'}
           </span>
         </div>
         <button
@@ -213,14 +239,16 @@ export function ForkForm({
             </li>
             <li>
               <X size={12} aria-hidden /> The original tool scaffold is
-              unavailable; the continuation cannot call tools
+              unavailable; generated calls are never executed
             </li>
             <li>
               <Info size={12} aria-hidden /> Each branch is initially unscored
             </li>
           </ul>
           <p>
-            One model continuation per replication runs through Inspect.{' '}
+            {multi
+              ? 'Multiple model calls may use exact recorded observations.'
+              : 'One model continuation per replication runs through Inspect.'}{' '}
             {source.data?.capabilities.reason}
           </p>
         </div>
@@ -282,6 +310,17 @@ export function ForkForm({
         ))
       )}
       <div className="detail-heading">CONTINUATION</div>
+      <ExecutionOptions
+        value={execution}
+        onChange={setExecution}
+        stubs={stubText}
+        onStubs={setStubText}
+      />
+      {multi && (
+        <ReplaySummary
+          preview={debounced === requestKey ? preview.data : undefined}
+        />
+      )}
       <div className="form-row">
         <Field label="Provider">
           <select
@@ -417,8 +456,11 @@ export function ForkForm({
           {preview.data
             ? `≈${estimateTokens(preview.data.contextCharacters).toLocaleString()} context tokens (character estimate)`
             : 'Context size pending'}
-          {maxTokens ? ` · up to ${maxTokens.toLocaleString()} output tokens` : ''}{' '}
-          × {replicationCount} replication{replicationCount === 1 ? '' : 's'} ·
+          {maxTokens
+            ? ` · up to ${maxTokens.toLocaleString()} output tokens`
+            : ''}{' '}
+          {multi && `per model call × up to ${execution.maxModelSteps} steps `}×{' '}
+          {replicationCount} replication{replicationCount === 1 ? '' : 's'} ·
           Monetary cost unavailable
           <small>Context is sent to the selected provider.</small>
         </span>
@@ -428,14 +470,19 @@ export function ForkForm({
             action.isPending ||
             !contextOnly ||
             !!localError ||
-            !!preview.error
+            !!preview.error ||
+            (multi &&
+              (debounced !== requestKey ||
+                preview.isFetching ||
+                !preview.data?.replaySupport.supported))
           }
           onClick={() => {
             void run()
           }}
         >
           <Play size={13} />
-          Run {replicationCount > 1 ? `${replicationCount} replications` : 'fork'}
+          Run{' '}
+          {replicationCount > 1 ? `${replicationCount} replications` : 'fork'}
         </Button>
       </div>
     </div>
@@ -556,7 +603,10 @@ function InterventionEditor({
         <div className="replacement-grid">
           <div>
             <span className="replacement-label">Original</span>
-            <pre className="replacement-original" data-testid="original-content">
+            <pre
+              className="replacement-original"
+              data-testid="original-content"
+            >
               {item.original ?? (target.isLoading ? 'Loading…' : '—')}
             </pre>
           </div>
@@ -719,6 +769,12 @@ export function ForkWorkspace() {
                   <button onClick={() => ui.selectTrajectory(id)}>
                     <span className="branch-node" />
                     <strong>Replication {i + 1}</strong>
+                    <ExecutionSummary
+                      metadata={
+                        trajectories.data?.items.find((t) => t.id === id)
+                          ?.metadata
+                      }
+                    />
                     <Status
                       status={
                         trajectories.data?.items.find((t) => t.id === id)

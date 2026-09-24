@@ -250,7 +250,8 @@ async def test_fork_preview_matches_run_reconstruction_without_secrets(
     assert preview["provider"]["apiKeyEnv"] == "OPENAI_API_KEY"
     assert "sk-preview-secret-value" not in __import__("json").dumps(preview)
     fork = Fork.model_validate(request)
-    *_, messages, _, _ = await service.forks.prepare(fork)
+    prepared = await service.forks.prepare(fork)
+    messages = prepared.messages
     assert messages == preview["messages"]
     assert not service.db.list("forks")  # Preview never persists or executes.
     request["modelOverrides"]["parameters"] = {"logit_bias": {}}

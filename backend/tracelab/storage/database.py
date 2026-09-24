@@ -6,6 +6,7 @@ from typing import Any
 import duckdb
 
 TABLES = {
+    "tool_resolutions",
     "event_presentations",
     "branch_comparisons",
     "analysis_signals",
@@ -57,6 +58,7 @@ class Database:
             )""")
         for table, column in [
             ("events", "trajectory_id"),
+            ("tool_resolutions", "trajectory_id"),
             ("event_presentations", "trajectory_id"),
             ("analysis_signals", "trajectory_id"),
             ("outline_nodes", "trajectory_id"),

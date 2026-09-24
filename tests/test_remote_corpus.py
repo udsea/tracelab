@@ -143,3 +143,21 @@ async def test_budget_siphon_presentation_and_filtered_navigation(service):
     print(
         "\nBudget siphon: 309 recorded / 221 research / 88 runtime; #70 Reasoning offset 5, All offset 53; raw redacted payload retained"
     )
+
+    preview = await service.dispatch(
+        "forks.preview",
+        {
+            "sourceTrajectoryId": tid,
+            "sourceEventId": f"{tid}:e69",
+            "modelOverrides": {"provider": "local"},
+            "executionSpec": {"continuation": "multi_step", "toolPolicy": "recorded_replay"},
+        },
+    )
+    assert preview["replaySupport"]["supported"]
+    assert preview["toolCatalog"]["names"] == ["shell", "read_file", "write_file", "list_dir"]
+    assert preview["replayPlan"]["entryCount"] == 31
+    assert preview["replayPlan"]["entries"][0]["sourceCallEventId"] == f"{tid}:e72"
+    assert not service.db.list("forks") and not service.db.list("tool_resolutions")
+    print(
+        "Budget siphon replay: 4 explicit schemas; 31 observations after #69; preview only, no model calls"
+    )

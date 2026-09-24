@@ -191,7 +191,25 @@ export type Intervention =
   | { type: 'system_prompt_override'; content: string }
   | { type: 'model_override'; model: string }
   | { type: 'generation_override'; parameters: Metadata }
+export interface ToolStub {
+  id: string
+  toolName: string
+  arguments: unknown
+  result?: unknown
+  error?: unknown
+}
+export interface ForkExecutionSpec {
+  continuation: 'single_turn' | 'multi_step'
+  toolPolicy: 'disabled' | 'recorded_replay'
+  environment: 'none'
+  scoring: 'none'
+  unmatchedToolPolicy: 'fail' | 'stub'
+  maxModelSteps: number
+  maxToolCalls: number
+  toolStubs: ToolStub[]
+}
 export interface Fork {
+  executionSpec?: ForkExecutionSpec
   id: string
   sourceTrajectoryId: string
   sourceEventId: string
