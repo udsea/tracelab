@@ -1,3 +1,4 @@
+import { eventModes } from './presentation'
 import {
   AlignLeft,
   ArrowUpRight,
@@ -114,7 +115,12 @@ export function TrajectoryView() {
           <span className="model-dot" />
           <span>{shortModel(t.model)}</span>
           <i />
-          <span>{number(t.eventCount)} events</span>
+          <span
+            title={`${query.data?.eventCounts?.recorded ?? t.eventCount} recorded events; ${query.data?.eventCounts?.runtime ?? '—'} runtime; ${query.data?.eventCounts?.opaque ?? '—'} opaque reasoning records`}
+          >
+            {number(query.data?.eventCounts?.research ?? t.eventCount)} research
+            events
+          </span>
           <i />
           <span>{number(t.totalTokens)} tokens</span>
           <i />
@@ -123,12 +129,7 @@ export function TrajectoryView() {
       </div>
       <div className="event-toolbar">
         <div className="segmented-control">
-          {[
-            ['all', 'All events'],
-            ['tools', 'Tools'],
-            ['reasoning', 'Reasoning'],
-            ['errors', 'Errors'],
-          ].map(([value, label]) => (
+          {eventModes.map(([value, label]) => (
             <button
               key={value}
               className={ui.mode === value ? 'active' : ''}

@@ -39,6 +39,7 @@ export function Timeline() {
     signals = useSignals(ui.trajectoryId)
   const ref = useRef<HTMLDivElement>(null),
     chart = useRef<echarts.ECharts | null>(null)
+  const [showRuntime, setShowRuntime] = useState(false)
   const [menu, setMenu] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const latest = useRef({
@@ -60,6 +61,7 @@ export function Timeline() {
     'Outline',
     'Model calls',
     'Reasoning',
+    'Opaque reasoning',
     'Messages',
     'Tool calls',
     'Tool results',
@@ -68,7 +70,8 @@ export function Timeline() {
     'Errors',
     'Scores',
     'Checkpoints',
-    'Other / runtime',
+    'Other',
+    ...(showRuntime ? ['Runtime'] : []),
   ]
   const availableActivities = activities.filter(
     (l) =>
@@ -151,7 +154,8 @@ export function Timeline() {
       : [0, coords.max]
     const visible = points.filter(
       (p) =>
-        !ui.range || (p.index >= ui.range.start && p.index <= ui.range.end),
+        (showRuntime || p.presentationClass !== 'runtime') &&
+        (!ui.range || (p.index >= ui.range.start && p.index <= ui.range.end)),
     )
     const buckets = new Map<
       string,
@@ -327,6 +331,7 @@ export function Timeline() {
     ui.hiddenLanes,
     ui.selectedIndex,
     height,
+    showRuntime,
   ])
   if (!ui.trajectoryId) return null
   return (
@@ -335,7 +340,10 @@ export function Timeline() {
       style={expanded ? { height: '48vh' } : undefined}
     >
       <div className="timeline-heading">
-        <strong>Overview · {points.length} events</strong>
+        <strong title={`${points.length} recorded events`}>
+          Overview · {overview.data?.eventCounts.research ?? points.length}{' '}
+          research events
+        </strong>
         <div>
           <select
             aria-label="Timeline scale"
@@ -408,6 +416,14 @@ export function Timeline() {
       )}
       {menu && (
         <div className="analysis-lane-menu">
+          <label>
+            <input
+              type="checkbox"
+              checked={showRuntime}
+              onChange={(e) => setShowRuntime(e.target.checked)}
+            />
+            Include runtime events
+          </label>
           {[...activities, ...signalLanes].map((l) => (
             <label key={l}>
               <input

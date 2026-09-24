@@ -1,3 +1,8 @@
+import { presentationLabel, opaqueDescription } from './presentation'
+import type {
+  ReasoningVisibility,
+  EventPresentationClass,
+} from '@/types/domain'
 import { AnalysisStack } from '@/features/analysis/SignalInspector'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -16,7 +21,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useUI, notify } from '@/stores/ui'
 import { rpc } from '@/lib/api'
-import { eventLabel, json } from '@/lib/utils'
+import { json } from '@/lib/utils'
 import { useClassifiers, useTimeline, useTrajectory } from '@/hooks/queries'
 import { Empty, ErrorState, Loading } from '@/components/common/Primitives'
 import { EventIcon } from './EventList'
@@ -25,7 +30,7 @@ import type { ClassifierResult, TrajectoryEvent } from '@/types/domain'
 export function EventInspector() {
   const ui = useUI()
   const [tab, setTab] = useState('event')
-  const [rawOpen, setRawOpen] = useState(false)
+  const [rawEventId, setRawEventId] = useState<string | null>(null)
   const trajectory = useTrajectory(ui.trajectoryId)
   const query = useQuery({
     queryKey: ['event', ui.trajectoryId, ui.selectedIndex],
@@ -37,6 +42,8 @@ export function EventInspector() {
     enabled: !!ui.trajectoryId,
   })
   const id = query.data?.event.id
+  const rawOpen = !!id && rawEventId === id
+  const setRawOpen = (open: boolean) => setRawEventId(open && id ? id : null)
   const raw = useQuery({
     queryKey: ['raw-event', id],
     queryFn: () => rpc('events.raw', { id }),
@@ -98,9 +105,18 @@ export function EventInspector() {
                 <EventIcon type={event.type} size={17} />
               </span>
               <div>
-                <h3>{event.tool?.name || eventLabel(event.type)}</h3>
+                <h3>
+                  {event.tool?.name ||
+                    presentationLabel(
+                      event.type,
+                      event.metadata.reasoningVisibility as ReasoningVisibility,
+                    )}
+                </h3>
                 <span>
-                  {eventLabel(event.type)}
+                  {presentationLabel(
+                    event.type,
+                    event.metadata.reasoningVisibility as ReasoningVisibility,
+                  )}
                   <span className="muted"> · #{event.index}</span>
                 </span>
               </div>
@@ -137,6 +153,12 @@ export function EventInspector() {
               )}
             </div>
             <EventRelations event={event} />
+            {event.metadata.presentationClass === 'runtime' && (
+              <p className="muted">
+                Runtime record · preserved framework activity, excluded from
+                default research analysis.
+              </p>
+            )}
             {event.tool?.arguments != null && (
               <>
                 <div className="detail-heading">
@@ -163,7 +185,18 @@ export function EventInspector() {
                 <FileJson2 size={12} />
               </Button>
             </div>
-            {(event.content?.length || 0) > 1800 ? (
+            {event.metadata.presentationClass === 'opaque' ? (
+              <div className="inspector-callout">
+                <p>
+                  {opaqueDescription(
+                    event.metadata.presentationClass as EventPresentationClass,
+                  )}
+                </p>
+                <button onClick={() => setRawOpen(true)}>
+                  Show raw payload
+                </button>
+              </div>
+            ) : (event.content?.length || 0) > 1800 ? (
               <details className="raw-details">
                 <summary>
                   Show large output · {event.content?.length.toLocaleString()}{' '}

@@ -13,6 +13,11 @@ class SemanticEvent(AppModel):
     agent_id: str | None = None
     type: str
     summary: str
+    presentation_class: Literal["semantic", "runtime", "opaque"] = "semantic"
+    reasoning_visibility: (
+        Literal["plaintext", "summary", "encrypted", "redacted", "opaque"] | None
+    ) = None
+    model_call_id: str | None = None
     tool_name: str | None = None
     tool_arguments_summary: str | None = None
     tool_result_summary: str | None = None

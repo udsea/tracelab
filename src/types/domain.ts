@@ -1,3 +1,23 @@
+export type EventPresentationClass = 'semantic' | 'runtime' | 'opaque'
+export type ReasoningVisibility =
+  | 'plaintext'
+  | 'summary'
+  | 'encrypted'
+  | 'redacted'
+  | 'opaque'
+export interface EventLocation {
+  offset: number | null
+  exact: boolean
+  eventIndex: number
+  nearestEventIndex?: number | null
+}
+export interface EventCounts {
+  recorded: number
+  research: number
+  semantic: number
+  runtime: number
+  opaque: number
+}
 import type { SourceRef, Capabilities } from './sources'
 export type Metadata = Record<string, unknown>
 export interface Workspace {
@@ -97,6 +117,8 @@ export interface EventSummary {
   hasError: boolean
   tokenUsage?: { input?: number; output?: number }
   intervened?: boolean
+  presentationClass?: EventPresentationClass
+  reasoningVisibility?: ReasoningVisibility | null
 }
 export interface Segment {
   id: string

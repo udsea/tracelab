@@ -6,6 +6,7 @@ import math
 from datetime import datetime
 
 from tracelab.analysis.models import SemanticEvent
+from tracelab.presentation import classify, visible_event
 
 
 def compact(value, limit=600):
@@ -31,9 +32,11 @@ def semantic_events(events):
         for e in events
         if e.get("metadata", {}).get("structuralKind") == "span"
     }
-    for e in events:
+    seen_calls = set()
+    for original in events:
+        e = visible_event(original)
         meta, tool = e.get("metadata") or {}, e.get("tool") or {}
-        raw = meta.get("raw") or {}
+        raw = (original.get("metadata") or {}).get("raw") or {}
         if not isinstance(raw, dict):
             raw = {}
         outcome = tool.get("result")
@@ -65,13 +68,27 @@ def semantic_events(events):
             agent = owners[0] if len(set(owners)) == 1 else None
         artifacts = meta.get("artifacts") or []
         effects = meta.get("environmentEffects") or []
+        presentation = classify(e)
+        call_id = meta.get("modelCallId")
+        boundary = bool(call_id and call_id not in seen_calls)
+        if call_id:
+            seen_calls.add(call_id)
         result.append(
             SemanticEvent(
                 event_id=e["id"],
                 index=e["index"],
                 agent_id=str(agent) if agent else None,
                 type=e["type"],
-                summary=compact(e.get("content") or "", 1200),
+                summary=""
+                if presentation == "runtime"
+                else (
+                    f"[{meta.get('reasoningVisibility', 'opaque')} reasoning unavailable]"
+                    if presentation == "opaque"
+                    else compact(e.get("content") or "", 1200)
+                ),
+                presentation_class=presentation,
+                reasoning_visibility=meta.get("reasoningVisibility"),
+                model_call_id=call_id,
                 tool_name=tool.get("name"),
                 tool_arguments_summary=compact(tool["arguments"]) if "arguments" in tool else None,
                 tool_result_summary=compact(outcome) if outcome is not None else None,
@@ -82,7 +99,9 @@ def semantic_events(events):
                 parent_ids=e.get("parentEventIds", []),
                 artifacts=artifacts if isinstance(artifacts, list) else [artifacts],
                 environment_effects=effects if isinstance(effects, list) else [effects],
-                model_call=meta.get("spanKind") == "llm"
+                model_call=boundary
+                if call_id
+                else meta.get("spanKind") == "llm"
                 or meta.get("inspectEventType") == "model"
                 or meta.get("modelCall") is True
                 or (
@@ -110,7 +129,11 @@ def coordinates(events):
     call = 0
     points = []
     for e, stamp in zip(events, stamps, strict=True):
-        boundary = e.model_call if explicit else e.type == "assistant"
+        boundary = (
+            e.model_call
+            if explicit
+            else e.type == "assistant" and e.presentation_class == "semantic"
+        )
         if boundary:
             call += 1
         points.append(
@@ -122,6 +145,9 @@ def coordinates(events):
                 "modelCallBoundary": boundary,
                 "agent": e.agent_id,
                 "type": e.type,
+                "presentationClass": e.presentation_class,
+                "reasoningVisibility": e.reasoning_visibility,
+                "modelCallId": e.model_call_id,
                 "tool": e.tool_name,
                 "error": bool(e.error) or e.tool_success is False,
                 "artifacts": bool(e.artifacts),

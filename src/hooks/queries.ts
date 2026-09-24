@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { rpc } from '@/lib/api'
 import { notify, useUI } from '@/stores/ui'
 import type {
+  EventCounts,
   ClassifierDefinition,
   Experiment,
   Job,
@@ -34,6 +35,7 @@ export const useTrajectory = (id: string | null) =>
     queryKey: ['trajectory', id],
     queryFn: () =>
       rpc<{
+        eventCounts: EventCounts
         trajectory: Trajectory
         capabilities: {
           contextOnly: boolean

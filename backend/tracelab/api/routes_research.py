@@ -18,6 +18,8 @@ from tracelab.analysis.rules import BUILTINS
 from tracelab.analysis.semantic import coordinates, semantic_events
 from tracelab.classifiers.runner import canonical_hash
 from tracelab.models.domain import Job, uid
+from tracelab.presentation import VERSION
+from tracelab.presentation.storage import counts
 
 METHODS = {
     "analysis.overview",
@@ -119,7 +121,7 @@ async def handle(service, method, p):
             trajectory = db.get("trajectories", tid)
             key = canonical_hash(
                 {
-                    "version": "overview-5",
+                    "version": "overview-" + VERSION,
                     "events": events,
                     "segments": segments,
                     "artifacts": artifacts,
@@ -140,6 +142,7 @@ async def handle(service, method, p):
                 ]
             result = {
                 "coordinates": coordinates(semantic),
+                "eventCounts": counts(db, tid),
                 "outline": [n.wire() for n in outline],
                 "relationships": relationships(semantic),
                 "analysisCapabilities": capabilities(

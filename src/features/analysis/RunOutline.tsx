@@ -71,8 +71,11 @@ export function RunOutline() {
                 </small>
                 <strong>{n.label}</strong>
                 <small>
-                  {n.stats.eventCount} events · {n.stats.toolCalls} calls ·{' '}
-                  {n.stats.errors} errors
+                  {n.stats.eventCount}{' '}
+                  {n.stats.eventBasis === 'research'
+                    ? 'research events'
+                    : 'recorded events'}{' '}
+                  · {n.stats.toolCalls} calls · {n.stats.errors} errors
                   {n.stats.durationMs != null
                     ? ` · ${Math.round(n.stats.durationMs / 1000)}s`
                     : ''}

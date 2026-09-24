@@ -16,6 +16,8 @@ def statistics(events):
         files.update(re.findall(r"(?:[\w.-]+/)+[\w.-]+", e.tool_arguments_summary or ""))
     return {
         "eventCount": len(events),
+        "eventBasis": "research",
+        "opaqueEvents": sum(e.presentation_class == "opaque" for e in events),
         "durationMs": max(valid) - min(valid) if len(valid) > 1 else None,
         "timedEvents": len(valid),
         "modelCalls": sum(e.model_call for e in events),
@@ -38,6 +40,7 @@ def statistics(events):
 
 
 def build_outline(tid, events, segments=()):
+    events = [e for e in events if e.presentation_class != "runtime"]
     nodes = []
 
     def add(kind, label, subset, id=None, parent=None, provenance=None):

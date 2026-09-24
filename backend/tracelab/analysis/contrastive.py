@@ -5,6 +5,7 @@ from tracelab.analysis.projection import signals
 from tracelab.classifiers.runner import canonical_hash
 from tracelab.comparison.service import compare_events
 from tracelab.models.domain import now
+from tracelab.presentation import research_events
 
 
 def distribution(events, field):
@@ -65,6 +66,7 @@ def rule_counts(db, tid, rows):
 
 async def compare(service, control_id, treatment_id):
     left, right = await service.load_events(control_id), await service.load_events(treatment_id)
+    left, right = research_events(left), research_events(right)
     control, treatment = (
         service.db.get("trajectories", control_id),
         service.db.get("trajectories", treatment_id),
@@ -109,7 +111,9 @@ async def compare(service, control_id, treatment_id):
             "inputTrajectoryIds": [control_id, treatment_id],
             "inputHashes": [canonical_hash(left), canonical_hash(right)],
             "createdAt": now(),
-            "implementationVersion": "contrastive-v1",
+            "implementationVersion": "contrastive-v2",
+            "eventBasis": "research",
+            "trajectoryMetricEventCountBasis": "recorded",
         },
     }
 

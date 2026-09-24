@@ -10,6 +10,7 @@ from tracelab.inspect_adapter.backend import InspectBackend
 from tracelab.models.domain import (
     ProviderSettings,
 )
+from tracelab.presentation.storage import prepared_events
 from tracelab.providers.base import HTTPProvider, default_providers
 from tracelab.sources.manager import Sources
 from tracelab.storage.database import Database
@@ -45,9 +46,7 @@ class Service:
             raise ValueError(
                 "Trajectory indexing is incomplete. Available events can be explored; finish or retry indexing before running analysis."
             )
-        return await asyncio.to_thread(
-            self.db.list, "events", "trajectory_id = ?", [id], 2000000, 0, "event_index"
-        )
+        return await asyncio.to_thread(prepared_events, self.db, id)
 
     async def dispatch(self, method: str, p: dict):
         from tracelab.api import (
@@ -71,6 +70,7 @@ class Service:
             "trajectories.get": routes_trajectory.handle,
             "trajectories.summary": routes_trajectory.handle,
             "events.list": routes_trajectory.handle,
+            "events.locate": routes_trajectory.handle,
             "events.get": routes_trajectory.handle,
             "events.raw": routes_trajectory.handle,
             "timeline": routes_trajectory.handle,

@@ -1,5 +1,6 @@
 import json
 
+from tracelab.presentation.storage import ensure_presentations
 from tracelab.storage.database import Database
 
 
@@ -88,8 +89,16 @@ def list_trajectories(
     }
 
 
-def event_page(db, trajectory_id, offset=0, limit=100, mode="all", query="", start=None, end=None):
+def event_filter(trajectory_id, mode="all", query="", start=None, end=None):
+    """One predicate for listing, counts and canonical-index location."""
+    if mode not in ("all", "tools", "reasoning", "errors", "runtime", "recorded"):
+        raise ValueError("Unknown event mode")
     where, args = ["trajectory_id = ?"], [trajectory_id]
+    if mode != "recorded":
+        where.append(
+            "(data->'metadata'->>'presentationClass') "
+            + ("= 'runtime'" if mode == "runtime" else "!= 'runtime'")
+        )
     modes = {"tools": ["tool_call", "tool_result"], "reasoning": ["reasoning"], "errors": ["error"]}
     if mode in modes:
         kinds = modes[mode]
@@ -110,13 +119,20 @@ def event_page(db, trajectory_id, offset=0, limit=100, mode="all", query="", sta
     if end is not None:
         where.append("event_index <= ?")
         args.append(int(end))
-    clause = " AND ".join(where)
-    total = db.query(f"SELECT count(*) FROM events WHERE {clause}", args)[0][0]
+    return " AND ".join(where), args
+
+
+def event_page(db, trajectory_id, offset=0, limit=100, mode="all", query="", start=None, end=None):
+    ensure_presentations(db, trajectory_id)
+    clause, args = event_filter(trajectory_id, mode, query, start, end)
+    total = db.query(f"SELECT count(*) FROM event_presentations WHERE {clause}", args)[0][0]
+    # Project bounded previews in SQL: large tool outputs stay behind event detail.
     rows = db.query(
         f"""SELECT id, event_index, data->>'type', data->>'role',
         substring(COALESCE(NULLIF(data->>'content', ''), data->'tool'->>'error', data->'tool'->>'arguments'), 1, 280), data->>'timestamp', data->'tool'->>'name',
-        data->'tool'->>'error', data->>'tokenUsage', data->'metadata'->>'intervened'
-        FROM events WHERE {clause} ORDER BY event_index LIMIT ? OFFSET ?""",
+        data->'tool'->>'error', data->>'tokenUsage', data->'metadata'->>'intervened',
+        data->'metadata'->>'presentationClass', data->'metadata'->>'reasoningVisibility'
+        FROM event_presentations WHERE {clause} ORDER BY event_index LIMIT ? OFFSET ?""",
         args + [min(int(limit), 500), max(0, int(offset))],
     )
     return {
@@ -135,21 +151,52 @@ def event_page(db, trajectory_id, offset=0, limit=100, mode="all", query="", sta
                 "hasError": bool(r[7]) or r[2] == "error",
                 "tokenUsage": json.loads(r[8]) if r[8] else None,
                 "intervened": r[9] == "true",
+                "presentationClass": r[10],
+                "reasoningVisibility": r[11],
             }
             for r in rows
         ],
     }
 
 
+def event_location(db, trajectory_id, event_index, mode="all", query="", start=None, end=None):
+    ensure_presentations(db, trajectory_id)
+    clause, args = event_filter(trajectory_id, mode, query, start, end)
+    rows = db.query(
+        f"""SELECT event_index FROM event_presentations WHERE {clause}
+        ORDER BY abs(event_index - ?), event_index LIMIT 1""",
+        args + [int(event_index)],
+    )
+    if not rows:
+        return {
+            "offset": None,
+            "exact": False,
+            "eventIndex": event_index,
+            "nearestEventIndex": None,
+        }
+    nearest = rows[0][0]
+    offset = db.query(
+        f"SELECT count(*) FROM event_presentations WHERE {clause} AND event_index < ?",
+        args + [nearest],
+    )[0][0]
+    return {
+        "offset": offset,
+        "exact": nearest == event_index,
+        "eventIndex": event_index,
+        "nearestEventIndex": nearest if nearest != event_index else None,
+    }
+
+
 def search(db, workspace_id, query, limit=100):
     if not query.strip():
         return {"items": [], "total": 0}
+    ensure_presentations(db)
     clause = """contains(lower(search_text), lower(?)) AND trajectory_id IN
         (SELECT id FROM trajectories WHERE experiment_id IN
             (SELECT id FROM experiments WHERE workspace_id = ?))"""
     rows = db.query(
         f"""SELECT id, trajectory_id, event_index, data->>'type', search_text
-        FROM events WHERE {clause} ORDER BY trajectory_id, event_index LIMIT ?""",
+        FROM event_presentations WHERE {clause} AND (data->'metadata'->>'presentationClass') != 'runtime' ORDER BY trajectory_id, event_index LIMIT ?""",
         [query, workspace_id, limit],
     )
     items = [
@@ -176,9 +223,10 @@ def search(db, workspace_id, query, limit=100):
                 "preview": ann["label"] + ": " + (ann.get("note") or ""),
             }
         )
-    total = db.query(f"SELECT count(*) FROM events WHERE {clause}", [query, workspace_id])[0][
-        0
-    ] + len(annotations)
+    total = db.query(
+        f"SELECT count(*) FROM event_presentations WHERE {clause} AND (data->'metadata'->>'presentationClass') != 'runtime'",
+        [query, workspace_id],
+    )[0][0] + len(annotations)
     unindexed = db.query(
         """SELECT count(*) FROM trajectories WHERE (data->>'loaded') != 'true' AND
         experiment_id IN (SELECT id FROM experiments WHERE workspace_id = ?)""",

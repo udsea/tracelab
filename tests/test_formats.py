@@ -101,4 +101,6 @@ async def test_sts_normalized_events_work_with_existing_index_and_search(service
         await service.dispatch("search", {"workspaceId": workspace["id"], "query": "secret.txt"})
     )["total"] == 1
     selected = await service.dispatch("events.get", {"trajectoryId": trajectory["id"], "index": 0})
-    assert selected["event"]["metadata"]["raw"]["extra"] == 42
+    assert "raw" not in selected["event"]["metadata"]
+    raw = await service.dispatch("events.raw", {"id": selected["event"]["id"]})
+    assert raw["extra"] == 42
