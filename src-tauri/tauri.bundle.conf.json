@@ -1,1 +1,6 @@
-{"bundle":{"resources":{"binaries/tracelab-backend/":"backend/"}}}
+{
+  "bundle": {
+    "resources": { "binaries/tracelab-backend/": "backend/" },
+    "macOS": { "signingIdentity": "-" }
+  }
+}

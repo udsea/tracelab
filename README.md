@@ -28,9 +28,11 @@ To build a self-contained application with a bundled Python runtime:
 pnpm desktop:build
 ```
 
-On macOS, the result is `src-tauri/target/release/bundle/macos/TraceLab.app`. The build uses PyInstaller for the Python resource bundle, then Tauri. Distribution signing and notarization are not configured. The supplied bundle target is macOS; Windows/Linux packaging has not been validated.
+On macOS, the result is `src-tauri/target/release/bundle/macos/TraceLab.app`. The build uses PyInstaller for the Python resource bundle, then Tauri. The app bundle is ad-hoc signed for integrity. Apple Developer ID signing and notarization are not configured. The supplied bundle target is macOS; Windows/Linux packaging has not been validated.
 
 GitHub Actions builds and smoke-tests the macOS ARM64 app from source after the CI checks pass. Download the ZIP, checksum, and build metadata from a successful **Actions → CI → Artifacts** run. Build outputs are ignored by Git and are never committed. See [contribution and CI practices](CONTRIBUTING.md) and [security guidance](SECURITY.md).
+
+On first launch, macOS may require explicit approval because this development build is not notarized. After verifying the archive checksum, use **System Settings → Privacy & Security → Open Anyway** if offered for TraceLab. Do not disable Gatekeeper globally. If macOS says the app is damaged, check `codesign --verify --deep --strict /path/to/TraceLab.app` and report the build commit and error; a runtime smoke-test pass alone does not establish bundle integrity.
 
 ## Research workflow
 
