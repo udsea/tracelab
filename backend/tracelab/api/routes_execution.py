@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 from urllib.parse import urlparse
@@ -67,17 +68,17 @@ async def handle(service, method: str, p: dict):
             else None
         )
         return {
-            **compare_events(left, right, point),
+            **(await asyncio.to_thread(compare_events, left, right, point)),
             "left": service.db.get("trajectories", p["left"]),
             "right": right_t,
         }
     if method == "compare.groups":
-        return group_comparison(service.db, p["workspaceId"], p["groups"])
+        return await asyncio.to_thread(group_comparison, service.db, p["workspaceId"], p["groups"])
     if method == "compare.members":
         from tracelab.comparison.service import group_members
 
-        return group_members(
-            service.db, p["workspaceId"], p["group"], p["metric"], p.get("offset", 0)
+        return await asyncio.to_thread(
+            group_members, service.db, p["workspaceId"], p["group"], p["metric"], p.get("offset", 0)
         )
     if method == "jobs.list":
         return [
@@ -89,10 +90,12 @@ async def handle(service, method: str, p: dict):
                     if k not in ("provenance", "attempts", "definition", "schema")
                 }
             }
-            for job in service.db.list("jobs", limit=100, order="data->>'createdAt' DESC")
+            for job in await asyncio.to_thread(
+                service.db.list, "jobs", limit=100, order="data->>'createdAt' DESC"
+            )
         ]
     if method == "jobs.get":
-        return service.db.get("jobs", p["id"])
+        return await asyncio.to_thread(service.db.get, "jobs", p["id"])
     if method == "jobs.cancel":
         return service.jobs.cancel(p["id"])
     if method == "providers.list":

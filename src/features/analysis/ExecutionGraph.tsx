@@ -61,6 +61,7 @@ export function ExecutionGraph({ overview }: { overview: Overview }) {
   const edges = allEdges.slice(edgeOffset, edgeOffset + 200)
   const visiblePoints = points.filter(
     (p) =>
+      p.presentationClass !== 'runtime' &&
       p.agent &&
       (!ui.range || (p.index >= ui.range.start && p.index <= ui.range.end)),
   )

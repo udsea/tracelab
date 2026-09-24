@@ -40,6 +40,9 @@ SCHEMA = {
 
 async def interpret(service, job, tid, provider_id, model):
     semantic = semantic_events(await service.load_events(tid))
+    semantic = [e for e in semantic if e.presentation_class != "runtime"]
+    if not semantic:
+        raise ValueError("No research events available for interpretation")
     by_id = {e.event_id: e for e in semantic}
     provider, settings = service.provider_factory(provider_id)
     prompt = (

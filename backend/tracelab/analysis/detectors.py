@@ -9,6 +9,7 @@ from tracelab.analysis.semantic import semantic_events
 from tracelab.analysis.statistical import features, statistical_matches
 from tracelab.classifiers.runner import canonical_hash
 from tracelab.models.domain import now
+from tracelab.presentation import VERSION, research_events
 
 
 class LLMDetectorAdapter:
@@ -37,7 +38,10 @@ class RuleDetector:
         definition = DetectorDefinition.model_validate(config)
         output = []
         for tid in trajectory_ids:
-            events = await self.service.load_events(tid)
+            events = research_events(
+                await self.service.load_events(tid),
+                bool(definition.parameters.get("includeRuntime", False)),
+            )
 
             def calculate():
                 if self.detector_type == "rule":
@@ -99,7 +103,11 @@ class RuleDetector:
                             "inputManifestId": manifest_id,
                             "windowEventIds": match["evidence"],
                             "inputHash": input_hash,
-                            "implementationVersion": "tracelab-analysis-1",
+                            "implementationVersion": "tracelab-analysis-2",
+                            "presentationVersion": VERSION,
+                            "eventBasis": "recorded"
+                            if definition.parameters.get("includeRuntime")
+                            else "research",
                             "implementationHash": hashlib.sha256(
                                 b"".join(
                                     marshal.dumps(function.__code__)

@@ -89,3 +89,57 @@ async def test_public_hf_session_trace(service):
     t = service.db.list("trajectories")[0]
     assert t["loaded"] and t["eventCount"] > 1
     assert not t["capabilities"]["contextFork"]
+
+
+async def test_budget_siphon_presentation_and_filtered_navigation(service):
+    """Real Gemini regression; pinned source, no model invocation and no vendored corpus."""
+    import json
+
+    from tracelab.analysis.semantic import semantic_events
+    from tracelab.classifiers.runner import classifier_input
+    from tracelab.sources.refs import source_ref
+
+    path = "inspect_logs/openrouter_google_gemini-3.1-pro-preview_exacto/repeat_01/2026-04-26T08-28-50+00-00_budget-siphon-task_hv8xPLk3QXDSGp5gdG98dC.eval"
+    ref = child_ref(source_ref(REPO, kind="huggingface", revision=SHA), path)
+    workspace = await service.dispatch("workspaces.create", {"name": "Presentation regression"})
+    await import_sources(service, Job(kind="import", name="remote"), workspace["id"], [ref.wire()])
+    trajectory = next(
+        t for t in service.db.list("trajectories") if t["sampleId"] == "budget_siphon_H"
+    )
+    tid = trajectory["id"]
+    loaded = await service.dispatch("trajectories.get", {"id": tid})
+    assert loaded["eventCounts"] == {
+        "recorded": 309,
+        "research": 221,
+        "semantic": 207,
+        "runtime": 88,
+        "opaque": 14,
+    }
+    for mode, offset in [("reasoning", 5), ("all", 53)]:
+        location = await service.dispatch(
+            "events.locate", {"trajectoryId": tid, "mode": mode, "eventIndex": 70}
+        )
+        assert location["exact"] and location["offset"] == offset
+        page = await service.dispatch(
+            "events.list", {"trajectoryId": tid, "mode": mode, "offset": offset, "limit": 1}
+        )
+        assert page["items"][0]["index"] == 70
+        assert page["items"][0]["reasoningVisibility"] == "redacted"
+        assert not page["items"][0]["preview"]
+    event = (await service.dispatch("events.get", {"trajectoryId": tid, "index": 70}))["event"]
+    assert event["content"] is None
+    raw = await service.dispatch("events.raw", {"id": event["id"]})
+    block = raw["raw"]["output"]["choices"][0]["message"]["content"][0]
+    assert block["redacted"] is True and len(block["reasoning"]) == 144
+    payload = block["reasoning"]
+    events = await service.load_events(tid)
+    assert payload not in json.dumps(classifier_input(events))
+    assert payload not in json.dumps([e.wire() for e in semantic_events(events)])
+    assert payload not in json.dumps(event)
+    assert (await service.dispatch("search", {"workspaceId": workspace["id"], "query": payload}))[
+        "total"
+    ] == 0
+    assert sum(t["loaded"] for t in service.db.list("trajectories")) == 1
+    print(
+        "\nBudget siphon: 309 recorded / 221 research / 88 runtime; #70 Reasoning offset 5, All offset 53; raw redacted payload retained"
+    )

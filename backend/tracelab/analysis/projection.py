@@ -4,6 +4,8 @@ import json
 
 from tracelab.analysis.models import AnalysisSignal
 from tracelab.analysis.semantic import timestamp_ms
+from tracelab.presentation import classify
+from tracelab.presentation.storage import ensure_presentations
 
 
 def signals(db, tid):
@@ -96,13 +98,16 @@ def signals(db, tid):
                     metadata={"laneId": "forks"},
                 ).wire()
             )
+    ensure_presentations(db, tid)
     for event in db.list(
-        "events",
+        "event_presentations",
         "trajectory_id = ? AND ((data->>'type') = 'environment' OR (data->'metadata'->>'environmentEffects') IS NOT NULL)",
         [tid],
         limit=100000,
         order="event_index",
     ):
+        if classify(event) == "runtime":
+            continue
         meta = event.get("metadata", {})
         if meta.get("structuralKind") in ("agent", "span", "scope") and not meta.get(
             "environmentEffects"
@@ -134,6 +139,7 @@ def signals(db, tid):
 
 
 def capabilities(events, artifacts, trajectory):
+    events = [e for e in events if e.presentation_class != "runtime"]
     measurements = {a.get("metadata", {}).get("measurement") for a in artifacts}
     return {
         "transcript": any(e.type in ("assistant", "user", "reasoning") for e in events),

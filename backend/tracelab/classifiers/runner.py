@@ -5,6 +5,7 @@ import json
 from jsonschema import Draft202012Validator, validate
 
 from tracelab.models.domain import ClassifierDefinition, ClassifierOutput, ClassifierResult, Job
+from tracelab.presentation import research_events
 from tracelab.providers.base import decode_output
 
 
@@ -49,7 +50,12 @@ def windows(events: list[dict], definition: ClassifierDefinition):
 
 def classifier_input(events):
     return [
-        {k: e.get(k) for k in ("id", "index", "type", "role", "content", "tool")} for e in events
+        {
+            **{k: e.get(k) for k in ("id", "index", "type", "role", "content", "tool")},
+            "presentationClass": e["metadata"]["presentationClass"],
+            "reasoningVisibility": e["metadata"].get("reasoningVisibility"),
+        }
+        for e in research_events(events)
     ]
 
 
@@ -78,6 +84,7 @@ class ClassifierRunner:
             "definition": definition.wire(),
             "provider": settings.wire(),
             "schema": schema,
+            "eventBasis": "research",
         }
         self.jobs.save(job)
         errors = 0
@@ -194,6 +201,11 @@ class ClassifierRunner:
                 events = [e for e in events if e["id"] in event_ids]
                 if len(events) != len(set(event_ids)):
                     raise ValueError("Selected events must belong to the selected trajectory")
+            events = research_events(events)
+            if event_ids is not None and not events:
+                raise ValueError(
+                    "Selected events contain no research content; runtime records are not classifier inputs"
+                )
             count = sum(1 for _ in windows(events, definition))
             job.total += count
             iterator = iter(windows(events, definition))

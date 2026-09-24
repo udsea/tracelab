@@ -1,4 +1,9 @@
-import type { Metadata } from './domain'
+import type {
+  Metadata,
+  EventPresentationClass,
+  ReasoningVisibility,
+  EventCounts,
+} from './domain'
 export interface AnalysisSignal {
   id: string
   trajectoryId: string
@@ -30,6 +35,7 @@ export interface OutlineNode {
   evidenceEventIds: string[]
   stats: {
     eventCount: number
+    eventBasis?: string
     durationMs: number | null
     toolCalls: number
     errors: number
@@ -44,6 +50,9 @@ export interface CoordinatePoint {
   elapsedMs: number | null
   modelCall: number
   modelCallBoundary: boolean
+  modelCallId?: string | null
+  presentationClass?: EventPresentationClass
+  reasoningVisibility?: ReasoningVisibility | null
   agent: string | null
   type: string
   tool: string | null
@@ -63,6 +72,7 @@ export interface Relationship {
   description: string
 }
 export interface Overview {
+  eventCounts: EventCounts
   coordinates: {
     points: CoordinatePoint[]
     missingTimestamps: number

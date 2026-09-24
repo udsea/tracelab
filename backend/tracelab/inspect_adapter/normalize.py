@@ -5,6 +5,7 @@ import json
 from collections import Counter
 
 from tracelab.models.domain import ToolData, TrajectoryEvent
+from tracelab.presentation import prepare_event
 
 
 def digest(value) -> str:
@@ -61,9 +62,11 @@ def normalize_sample(trajectory_id: str, sample: dict) -> tuple[list[TrajectoryE
             {k: msg.get(k) for k in ("role", "content", "tool_calls", "tool_call_id")}
         )
 
-    def emit_message(msg, source_id, timestamp=None, usage=None):
+    def emit_message(msg, source_id, timestamp=None, usage=None, model_call_id=None):
         role = msg.get("role", "assistant")
         meta = {"sourceRecordId": source_id, "nativeMessage": msg, "messageKey": message_key(msg)}
+        if model_call_id:
+            meta["modelCallId"] = model_call_id
         if role == "tool":
             cid = msg.get("tool_call_id", "")
             emit(
@@ -90,7 +93,14 @@ def normalize_sample(trajectory_id: str, sample: dict) -> tuple[list[TrajectoryE
             if kind not in ("system", "user", "assistant", "reasoning"):
                 kind = "other"
             content_text = block.get("reasoning", block.get("text"))
-            if content_text or block.get("type") not in ("text", "reasoning"):
+            if (
+                content_text
+                or block.get("type") not in ("text", "reasoning")
+                or (
+                    kind == "reasoning"
+                    and any(block.get(k) for k in ("redacted", "summary", "signature", "internal"))
+                )
+            ):
                 emit(
                     kind,
                     content_text or f"[{block.get('type', 'content')}]",
@@ -102,6 +112,7 @@ def normalize_sample(trajectory_id: str, sample: dict) -> tuple[list[TrajectoryE
                         "sourceRecordId": source_id,
                         "messageKey": message_key(msg),
                         "contentBlock": block,
+                        **({"modelCallId": model_call_id} if model_call_id else {}),
                     },
                     usage=usage if first else None,
                 )
@@ -123,7 +134,11 @@ def normalize_sample(trajectory_id: str, sample: dict) -> tuple[list[TrajectoryE
                 timestamp=timestamp,
                 metadata=meta
                 if first
-                else {"sourceRecordId": source_id, "messageKey": message_key(msg)},
+                else {
+                    "sourceRecordId": source_id,
+                    "messageKey": message_key(msg),
+                    **({"modelCallId": model_call_id} if model_call_id else {}),
+                },
                 usage=usage if first else None,
             )
             first = False
@@ -165,6 +180,7 @@ def normalize_sample(trajectory_id: str, sample: dict) -> tuple[list[TrajectoryE
                     source_id,
                     stamp,
                     {"input": usage.get("input_tokens"), "output": usage.get("output_tokens")},
+                    source_id + ":output:0",
                 )
                 seen[message_key(msg)] += 1
         elif kind == "tool":
@@ -196,7 +212,7 @@ def normalize_sample(trajectory_id: str, sample: dict) -> tuple[list[TrajectoryE
                 metadata={"sourceRecordId": source_id, "toolError": raw.get("error")},
             )
             # Reconciled with model input below by tool_call_id as well as full identity.
-        elif kind not in ("sample_init",):
+        else:
             mapped = {
                 "score": "score",
                 "error": "error",
@@ -252,4 +268,11 @@ def normalize_sample(trajectory_id: str, sample: dict) -> tuple[list[TrajectoryE
             "messages": sample.get("messages", []),
         }
     )
+    by_id = {s["id"]: s["raw"] for s in sources}
+    deduped = [
+        TrajectoryEvent.model_validate(
+            prepare_event(e.wire(), by_id.get(e.metadata.get("sourceRecordId")))
+        )
+        for e in deduped
+    ]
     return deduped, sources

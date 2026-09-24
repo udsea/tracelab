@@ -10,6 +10,34 @@ The outline combines existing segments with deterministic activity episodes, rec
 
 Recorded parents, explicit sender/recipient envelopes and shared artifact references provide distinct relationship types. A parent does not prove communication. Shared artifacts do not establish transfer direction. An envelope may describe both endpoints in one recorded event; TraceLab does not invent a separate receiving event. Unknown agent identity stays unknown.
 
+## Event presentation and raw preservation
+
+Canonical event indices identify recorded events, including framework records. The derived presentation model is independent of canonical event type:
+
+| Class | Meaning | Default visibility |
+| --- | --- | --- |
+| `semantic` | Readable behavior, tools, observed environment actions, scores, errors and checkpoints | All events and applicable filters |
+| `runtime` | Known framework envelopes/lifecycle records and uninterpreted `other` records | Runtime filter; optional runtime timeline lane |
+| `opaque` | Explicitly unreadable reasoning state | Compact qualified placeholder in All events and Reasoning |
+
+**All events** means research events (`semantic + opaque`). Headers report research counts; the trajectory count tooltip distinguishes recorded, runtime and opaque counts. Outline statistics and default rule/statistical/contrastive distributions use research events. Classifier windows count research events while retaining canonical boundary indices and exact input event IDs; ranges can bridge omitted runtime records. Rule/statistical definitions can explicitly set `includeRuntime: true`. Timeline coordinates retain every recorded index for navigation, but default activity lanes omit runtime records and separate **Opaque reasoning** from readable **Reasoning**. Recorded relationships remain structural evidence.
+
+`reasoningVisibility` is `plaintext`, `summary`, `encrypted`, `redacted` or `opaque`. Explicit content-block redaction/encryption/visibility fields take precedence; readable summaries are labeled as summaries. A signature accompanying readable text does not make the text opaque. Signature-only state is opaque. There is no base64 appearance detector. Unmarked encoded text cannot be reliably classified by this implementation.
+
+New Inspect normalization retains exact content blocks and source records while making unreadable reasoning content null. Older canonical rows are untouched: a disposable, versioned `event_presentations` table derives safe UI/search projections on demand. Writing canonical events invalidates their projection. Inspect sandbox `exec`, `read_file` and `write_file` records with concrete commands/paths remain meaningful environment observations; a bare `sandbox` lifecycle placeholder does not establish an environment effect. `sample_init` and span envelopes remain recorded and explicitly runtime. Unknown records are preserved without invented behavioral meaning.
+
+List responses use SQL-bounded previews. Ordinary event detail excludes raw provider blocks; **Show raw payload** / **Open raw source record** lazily calls `events.raw`. Disclosure is specific to the selected event. Internal replay still receives preserved source blocks, so opaque state can be replayed by the existing compatible backend without interpreting it as prose. Explicit branch replacements take precedence over their historical source block in presentation and replay. Parent events are never edited.
+
+Semantic summaries, optional LLM outline interpretation, phase segmentation, classifier formatting and local text search omit opaque payloads. Opaque existence is represented by visibility metadata/an unavailable-reasoning summary. Runtime narrative content is excluded from default analysis. Existing historical classifier/outline results and raw provenance are retained; rerun them to obtain results with the new input semantics.
+
+### Canonical indices and filtered row offsets
+
+`events.list` and `events.locate` share one parameterized predicate for trajectory, mode, optional canonical range and text query. `events.locate` returns `{offset, exact, eventIndex, nearestEventIndex}`. `offset` is a zero-based row in that filtered view, not a canonical event index. Missing selections resolve to the nearest visible canonical index (ties choose the lower index); empty views return null offsets. Filter changes preserve the canonical selection and explain when the nearest row is shown. Initial opening selects the first research event if canonical zero is runtime.
+
+The virtualized list navigates only on trajectory/filter/range changes and explicit jump/focus requests. It does not scroll in response to ordinary row selection or a count refresh after navigation completes. Cancelled/stale location responses cannot scroll a newer view. Explicit jumps to runtime events retain the selected inspector event even if the default list shows its nearest research neighbor; the Runtime filter exposes it.
+
+Inspect model output blocks safely share a `modelCallId` derived from their source-record ID and selected output choice. Older cached blocks can recover that ID only when the source record, message identity and recorded generation usage establish the group. Other sources keep the existing recorded boundary or explicitly labeled assistant-message proxy. This does not invent a general Turn UI or unsupported generation boundaries.
+
 ## Shared signals
 
 `AnalysisSignal` carries a trajectory/range, source type, evidence channel, score or label, evidence IDs, optional artifact reference and provenance. Existing `ClassifierResult` and annotations project into this model. Rules, statistics, environment observations, fork markers and imported internal measurements use the same lanes and inspector. Rolling results occupy their entire receptive interval. Scores are not universally probabilities: entropy is in bits and robust spikes may exceed one.

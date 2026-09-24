@@ -1,3 +1,5 @@
+import { useEventNavigation } from './useEventNavigation'
+import { presentationLabel, opaqueDescription } from './presentation'
 import { useEffect, useMemo, useRef } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -16,7 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import { rpc } from '@/lib/api'
-import { cn, eventLabel } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { useUI } from '@/stores/ui'
 import { useClassifiers, useTimeline, useTrajectory } from '@/hooks/queries'
 import { Empty, ErrorState, Loading } from '@/components/common/Primitives'
@@ -110,13 +112,14 @@ export function EventList() {
   useEffect(() => {
     virtualizer.measure()
   }, [expanded, virtualizer])
-  useEffect(() => {
-    virtualizer.scrollToIndex(0)
-  }, [trajectoryId, mode, range, virtualizer])
-  useEffect(() => {
-    if (mode === 'all' && !range && first.data)
-      virtualizer.scrollToIndex(selectedIndex, { align: 'center' })
-  }, [jumpVersion, trajectoryId, first.data?.total]) // selection alone must not hijack scrolling
+  const navigation = useEventNavigation(
+    base,
+    selectedIndex,
+    jumpVersion,
+    first.data?.total,
+    (offset) => virtualizer.scrollToIndex(offset, { align: 'center' }),
+    select,
+  )
   if (first.isLoading) return <Loading />
   if (first.error)
     return (
@@ -134,146 +137,167 @@ export function EventList() {
       </Empty>
     )
   return (
-    <div className="event-scroll" ref={ref} data-testid="event-scroll">
-      <div
-        className="virtual-events"
-        style={{ height: virtualizer.getTotalSize() }}
-      >
-        {virtualItems.map((row) => {
-          const event = pageData.get(Math.floor(row.index / PAGE))?.items[
-            row.index % PAGE
-          ]
-          if (!event)
+    <>
+      {navigation?.error && <p className="inline-error">{navigation.error}</p>}
+      {navigation?.location &&
+        !navigation.location.exact &&
+        navigation.location.eventIndex === selectedIndex && (
+          <p className="muted">
+            Selected #{selectedIndex} is outside this filter. Showing nearest
+            event #{navigation.location.nearestEventIndex ?? '—'}.
+          </p>
+        )}
+      <div className="event-scroll" ref={ref} data-testid="event-scroll">
+        <div
+          className="virtual-events"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualItems.map((row) => {
+            const event = pageData.get(Math.floor(row.index / PAGE))?.items[
+              row.index % PAGE
+            ]
+            if (!event)
+              return (
+                <div
+                  className="event-skeleton"
+                  key={row.index}
+                  style={{
+                    height: row.size,
+                    transform: `translateY(${row.start}px)`,
+                  }}
+                >
+                  Loading events…
+                </div>
+              )
+            const phase = timeline.data?.segments.find(
+              (s) =>
+                !s.parentId &&
+                event.index >= s.startEvent &&
+                event.index <= s.endEvent,
+            )
+            const annotated = timeline.data?.annotations.some(
+              (a) =>
+                event.index >= a.startEventIndex &&
+                event.index <= a.endEventIndex,
+            )
+            const forked = timeline.data?.forks.some(
+              (f) => f.sourceEventId === event.id,
+            )
+            const signals =
+              timeline.data?.results.filter(
+                (r) =>
+                  r.startEventIndex <= event.index &&
+                  r.endEventIndex >= event.index,
+              ) || []
             return (
               <div
-                className="event-skeleton"
-                key={row.index}
+                key={event.id}
+                className={cn(
+                  'event-row',
+                  selectedIndex === event.index && 'event-selected',
+                  expanded && 'event-expanded',
+                )}
                 style={{
                   height: row.size,
                   transform: `translateY(${row.start}px)`,
                 }}
               >
-                Loading events…
+                <button
+                  className="event-main"
+                  onClick={() => select(event.index)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    select(event.index)
+                    if (trajectory.data?.capabilities.contextOnly)
+                      set({ modal: 'fork' })
+                  }}
+                >
+                  <div className="event-gutter">
+                    <span>{String(event.index).padStart(3, '0')}</span>
+                    <div className={`event-type-icon type-${event.type}`}>
+                      <EventIcon type={event.type} />
+                    </div>
+                    <i />
+                  </div>
+                  <div className="event-body">
+                    <div className="event-topline">
+                      <span className={`event-label type-${event.type}`}>
+                        {event.toolName ||
+                          presentationLabel(
+                            event.type,
+                            event.reasoningVisibility,
+                          )}
+                      </span>
+                      {event.toolName && (
+                        <span className="event-kind">
+                          {event.type === 'tool_result'
+                            ? 'result'
+                            : 'tool call'}
+                        </span>
+                      )}
+                      {event.hasError && (
+                        <span className="error-tag">error</span>
+                      )}
+                      {phase && (
+                        <span className="event-phase">{phase.label}</span>
+                      )}
+                      <span className="event-time">
+                        {event.timestamp
+                          ? new Date(event.timestamp).toLocaleTimeString([], {
+                              hour12: false,
+                            })
+                          : `#${event.index}`}
+                      </span>
+                    </div>
+                    <div
+                      className={cn(
+                        'event-preview',
+                        (event.type === 'tool_call' ||
+                          event.type === 'tool_result') &&
+                          'mono',
+                      )}
+                    >
+                      {opaqueDescription(event.presentationClass) ||
+                        event.preview ||
+                        'No text content · inspect the raw event'}
+                    </div>
+                    {expanded && (
+                      <div className="expanded-meta">
+                        {event.role || event.type}
+                        <span>·</span>
+                        {event.tokenUsage?.output
+                          ? `${event.tokenUsage.output} output tokens`
+                          : 'Open to inspect full event'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="event-markers">
+                    {annotated && (
+                      <Flag size={11} className="annotation-marker" />
+                    )}
+                    {forked && <GitBranch size={12} />}{' '}
+                    {signals.length > 0 && (
+                      <span
+                        className="signal-dot"
+                        title={signals
+                          .map((result) => {
+                            const name =
+                              classifiers.data?.find(
+                                (c) => c.id === result.classifierId,
+                              )?.name || result.classifierId
+                            return `${name}: ${result.error ? 'classifier error' : result.output?.label || result.output?.score?.toFixed(2) || 'result available'}`
+                          })
+                          .join('\n')}
+                      />
+                    )}
+                    <ChevronRight size={12} />
+                  </div>
+                </button>
               </div>
             )
-          const phase = timeline.data?.segments.find(
-            (s) =>
-              !s.parentId &&
-              event.index >= s.startEvent &&
-              event.index <= s.endEvent,
-          )
-          const annotated = timeline.data?.annotations.some(
-            (a) =>
-              event.index >= a.startEventIndex &&
-              event.index <= a.endEventIndex,
-          )
-          const forked = timeline.data?.forks.some(
-            (f) => f.sourceEventId === event.id,
-          )
-          const signals =
-            timeline.data?.results.filter(
-              (r) =>
-                r.startEventIndex <= event.index &&
-                r.endEventIndex >= event.index,
-            ) || []
-          return (
-            <div
-              key={event.id}
-              className={cn(
-                'event-row',
-                selectedIndex === event.index && 'event-selected',
-                expanded && 'event-expanded',
-              )}
-              style={{
-                height: row.size,
-                transform: `translateY(${row.start}px)`,
-              }}
-            >
-              <button
-                className="event-main"
-                onClick={() => select(event.index)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  select(event.index)
-                  if (trajectory.data?.capabilities.contextOnly)
-                    set({ modal: 'fork' })
-                }}
-              >
-                <div className="event-gutter">
-                  <span>{String(event.index).padStart(3, '0')}</span>
-                  <div className={`event-type-icon type-${event.type}`}>
-                    <EventIcon type={event.type} />
-                  </div>
-                  <i />
-                </div>
-                <div className="event-body">
-                  <div className="event-topline">
-                    <span className={`event-label type-${event.type}`}>
-                      {event.toolName || eventLabel(event.type)}
-                    </span>
-                    {event.toolName && (
-                      <span className="event-kind">
-                        {event.type === 'tool_result' ? 'result' : 'tool call'}
-                      </span>
-                    )}
-                    {event.hasError && <span className="error-tag">error</span>}
-                    {phase && (
-                      <span className="event-phase">{phase.label}</span>
-                    )}
-                    <span className="event-time">
-                      {event.timestamp
-                        ? new Date(event.timestamp).toLocaleTimeString([], {
-                            hour12: false,
-                          })
-                        : `#${event.index}`}
-                    </span>
-                  </div>
-                  <div
-                    className={cn(
-                      'event-preview',
-                      (event.type === 'tool_call' ||
-                        event.type === 'tool_result') &&
-                        'mono',
-                    )}
-                  >
-                    {event.preview || 'No text content · inspect the raw event'}
-                  </div>
-                  {expanded && (
-                    <div className="expanded-meta">
-                      {event.role || event.type}
-                      <span>·</span>
-                      {event.tokenUsage?.output
-                        ? `${event.tokenUsage.output} output tokens`
-                        : 'Open to inspect full event'}
-                    </div>
-                  )}
-                </div>
-                <div className="event-markers">
-                  {annotated && (
-                    <Flag size={11} className="annotation-marker" />
-                  )}
-                  {forked && <GitBranch size={12} />}{' '}
-                  {signals.length > 0 && (
-                    <span
-                      className="signal-dot"
-                      title={signals
-                        .map((result) => {
-                          const name =
-                            classifiers.data?.find(
-                              (c) => c.id === result.classifierId,
-                            )?.name || result.classifierId
-                          return `${name}: ${result.error ? 'classifier error' : result.output?.label || result.output?.score?.toFixed(2) || 'result available'}`
-                        })
-                        .join('\n')}
-                    />
-                  )}
-                  <ChevronRight size={12} />
-                </div>
-              </button>
-            </div>
-          )
-        })}
+          })}
+        </div>
       </div>
-    </div>
+    </>
   )
 }

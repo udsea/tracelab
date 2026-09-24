@@ -11,7 +11,9 @@ def features(events, semantic, selected):
     counts = Counter()
     for e, s in zip(events, semantic, strict=True):
         if "event" in selected:
-            counts["event:" + e["type"]] += 1
+            counts[
+                "event:" + ("opaque_reasoning" if s.presentation_class == "opaque" else e["type"])
+            ] += 1
         if "tool" in selected:
             counts["tool:" + ((e.get("tool") or {}).get("name") or "none")] += 1
         if "agent" in selected:

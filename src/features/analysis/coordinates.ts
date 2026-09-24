@@ -54,21 +54,24 @@ export function coordinateMap(points: CoordinatePoint[], scale: Scale) {
   }
 }
 export function activities(p: CoordinatePoint): string[] {
+  if (p.presentationClass === 'runtime') return ['Runtime']
   const base =
-    (
-      {
-        reasoning: 'Reasoning',
-        tool_call: 'Tool calls',
-        tool_result: 'Tool results',
-        environment: 'Environment',
-        score: 'Scores',
-        checkpoint: 'Checkpoints',
-        system: 'Messages',
-        user: 'Messages',
-        assistant: 'Messages',
-        error: 'Errors',
-      } as Record<string, string>
-    )[p.type] ?? 'Other / runtime'
+    p.presentationClass === 'opaque'
+      ? 'Opaque reasoning'
+      : ((
+          {
+            reasoning: 'Reasoning',
+            tool_call: 'Tool calls',
+            tool_result: 'Tool results',
+            environment: 'Environment',
+            score: 'Scores',
+            checkpoint: 'Checkpoints',
+            system: 'Messages',
+            user: 'Messages',
+            assistant: 'Messages',
+            error: 'Errors',
+          } as Record<string, string>
+        )[p.type] ?? 'Other')
   return [
     ...new Set([
       base,
