@@ -13,10 +13,11 @@ This records executable checks, not scientific results. Synthetic/provider-doubl
 | `uv run --project backend ruff format --check backend tests scripts` | 94 files already formatted |
 | `pnpm audit --audit-level moderate` | No known vulnerabilities found |
 | `uv run --project backend python scripts/smoke_bundle.py backend/.venv/bin/tracelab-backend` | Passed against the development entry point (6 runs, 2 fork branches, populated restart, no model calls). Not a packaged-app run |
+| `cargo check --locked --manifest-path src-tauri/Cargo.toml` | Passed |
 | `python3 scripts/check_repository.py` | 243 indexed files, 0 findings |
 | `git diff --cached --check` | Passed |
 
-No Rust or Tauri files changed; Cargo checks were not rerun. Hosted CI was not observed for this change.
+No Rust or Tauri files changed; `cargo test` and `cargo fmt --check` were not rerun. Hosted CI was not observed for this change.
 
 Frontend tests cover the five-section Analysis navigation, the Overview hiding raw measurements by default, derivation wording without probability language, one-moment-per-lane prioritization, hidden empty inspector channels, per-lane window collapsing, the fork dialog targeting and prefilling the selected event, generation-parameter serialization and rejection, line diffs, search/command shortcut labels, command-palette navigation (go to event, switch workspace, out-of-range rejection) and Run Outline visibility by section. Backend tests cover the sample's matched pair, rule/statistical signals, synthetic fork (runner storage, no provider, no Inspect log, unscored branches), branch comparison, completed jobs, and `forks.preview` matching the run reconstruction without exposing credential values or persisting a fork.
 
