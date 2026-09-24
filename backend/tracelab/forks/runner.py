@@ -20,15 +20,7 @@ class ForkRunner:
     async def prepare(self, fork: Fork) -> PreparedFork:
         return await prepare(self, fork)
 
-    async def run(self, job: Job, fork: Fork, prepared: PreparedFork | None = None):
-        prepared = prepared or await self.prepare(fork)
-        multi = prepared.execution_spec.continuation == "multi_step"
-        if multi and not prepared.replay_support["supported"]:
-            fork.metadata["replaySupport"] = prepared.replay_support
-            self.db.put("forks", fork)
-            raise ReplayUnsupported(
-                prepared.replay_support["reasonCode"], prepared.replay_support["reason"]
-            )
+    def execution_provenance(self):
         try:
             commit = (
                 subprocess.run(
@@ -38,12 +30,23 @@ class ForkRunner:
             )
         except (OSError, subprocess.TimeoutExpired):
             commit = None
+        return dict(
+            inspectVersion=self.adapter.version, traceLabVersion=__version__, gitCommit=commit
+        )
+
+    def initialize_execution(self, prepared, job, extra_metadata=None):
+        fork = prepared.fork
+        multi = prepared.execution_spec.continuation == "multi_step"
+        if multi and not prepared.replay_support["supported"]:
+            fork.metadata["replaySupport"] = prepared.replay_support
+            self.db.put("forks", fork)
+            raise ReplayUnsupported(
+                prepared.replay_support["reasonCode"], prepared.replay_support["reason"]
+            )
         fork.metadata.update(
             sourceExperiment=prepared.parent.experiment_id,
             sourceEventIndex=prepared.source_event["index"],
-            inspectVersion=self.adapter.version,
-            traceLabVersion=__version__,
-            gitCommit=commit,
+            **self.execution_provenance(),
             model=prepared.model,
             provider=prepared.provider.wire(),
             parameters=prepared.generation_parameters,
@@ -60,7 +63,18 @@ class ForkRunner:
             jobId=job.id,
         )
         fork.status = "running"
+        fork.metadata.update(extra_metadata or {})
         self.db.put("forks", fork)
+
+    def finalize_execution(self, fork, failed=False, error=None):
+        fork.status = "failed" if failed else "complete"
+        if error:
+            fork.metadata["error"] = error
+        self.db.put("forks", fork)
+
+    async def run(self, job: Job, fork: Fork, prepared: PreparedFork | None = None):
+        prepared = prepared or await self.prepare(fork)
+        self.initialize_execution(prepared, job)
         job.total = fork.replication_count
         failures = []
         try:
@@ -80,9 +94,17 @@ class ForkRunner:
             )
             raise
         finally:
-            self.db.put("forks", fork)
+            self.finalize_execution(fork, fork.status == "failed")
 
-    async def run_replication(self, prepared: PreparedFork, replication: int, job: Job):
+    async def run_replication(
+        self,
+        prepared: PreparedFork,
+        replication: int,
+        job: Job,
+        *,
+        child_metadata=None,
+        on_child_created=None,
+    ):
         fork, parent = prepared.fork, prepared.parent
         multi = prepared.execution_spec.continuation == "multi_step"
         parameters = dict(prepared.generation_parameters)
@@ -124,9 +146,12 @@ class ForkRunner:
                 replayPlanHash=prepared.replay_plan_hash,
                 provenanceNote=NOTE,
             )
+        current.metadata.update(child_metadata or {})
         fork.child_trajectory_ids.append(current.id)
         self.db.put("forks", fork)
         self.db.put("trajectories", current)
+        if on_child_created:
+            on_child_created(current)
         execution = ReplayExecution(self.db, current, prepared) if multi else None
         try:
             copied = []

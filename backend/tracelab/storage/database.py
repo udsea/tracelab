@@ -6,6 +6,8 @@ from typing import Any
 import duckdb
 
 TABLES = {
+    "fork_experiments",
+    "fork_trials",
     "tool_resolutions",
     "event_presentations",
     "branch_comparisons",
@@ -57,6 +59,9 @@ class Database:
                 parent_id VARCHAR, search_text VARCHAR, data JSON NOT NULL
             )""")
         for table, column in [
+            ("fork_experiments", "workspace_id"),
+            ("fork_trials", "experiment_id"),
+            ("fork_trials", "trajectory_id"),
             ("events", "trajectory_id"),
             ("tool_resolutions", "trajectory_id"),
             ("event_presentations", "trajectory_id"),
@@ -103,7 +108,7 @@ class Database:
             data["id"],
             data.get("workspaceId"),
             data.get("experimentId"),
-            data.get("trajectoryId", data.get("sourceTrajectoryId")),
+            data.get("trajectoryId", data.get("sourceTrajectoryId", data.get("childTrajectoryId"))),
             data.get("classifierId"),
             data.get("index", data.get("startEventIndex")),
             data.get("parentTrajectoryId", data.get("parentId")),

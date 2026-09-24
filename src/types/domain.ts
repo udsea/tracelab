@@ -224,7 +224,14 @@ export interface Fork {
 }
 export interface Job {
   id: string
-  kind: 'import' | 'classifier' | 'fork' | 'segmentation' | 'index' | 'analysis'
+  kind:
+    | 'import'
+    | 'classifier'
+    | 'fork'
+    | 'segmentation'
+    | 'index'
+    | 'analysis'
+    | 'experiment'
   name: string
   status: 'queued' | 'running' | 'complete' | 'failed' | 'cancelled'
   completed: number

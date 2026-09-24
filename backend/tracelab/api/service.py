@@ -4,6 +4,7 @@ from pathlib import Path
 from tracelab.api.jobs import Jobs
 from tracelab.classifiers.presets import presets
 from tracelab.classifiers.runner import ClassifierRunner
+from tracelab.experiments.runner import ExperimentRunner
 from tracelab.forks.runner import ForkRunner
 from tracelab.ingestion.service import ensure_loaded
 from tracelab.inspect_adapter.backend import InspectBackend
@@ -35,6 +36,7 @@ class Service:
             self.db, self.jobs, self.load_events, self.provider_factory
         )
         self.forks = ForkRunner(self.db, self.jobs, self.adapter, self.load_events, data_dir)
+        self.fork_experiments = ExperimentRunner(self)
 
     def provider_factory(self, id):
         settings = ProviderSettings.model_validate(self.db.get("providers", id))
@@ -52,6 +54,7 @@ class Service:
         from tracelab.api import (
             routes_analysis,
             routes_execution,
+            routes_experiments,
             routes_research,
             routes_sources,
             routes_trajectory,
@@ -104,6 +107,8 @@ class Service:
             handler = routes_sources.handle
         if method in routes_research.METHODS:
             handler = routes_research.handle
+        if method in routes_experiments.METHODS:
+            handler = routes_experiments.handle
         if handler is None:
             raise ValueError(f"Unknown method: {method}")
         return await handler(self, method, p)
