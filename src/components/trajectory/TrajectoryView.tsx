@@ -4,7 +4,6 @@ import {
   ArrowUpRight,
   ChevronRight,
   Columns2,
-  GitBranch,
   List,
   Maximize2,
   X,
@@ -31,7 +30,6 @@ export function TrajectoryView() {
         Add trajectory source to begin exploring agent behaviour.
       </Empty>
     )
-  if (query.isLoading) return <Loading />
   if (query.error)
     return (
       <ErrorState
@@ -41,7 +39,10 @@ export function TrajectoryView() {
         }}
       />
     )
-  const t = query.data!.trajectory
+  // A persisted selection can outlive its data (for example after a restart).
+  if (!query.data) return <Loading />
+  const t = query.data.trajectory
+  const recorded = query.data.eventCounts?.recorded ?? t.eventCount
   return (
     <section className="trajectory-panel">
       <div className="trajectory-heading">
@@ -100,25 +101,15 @@ export function TrajectoryView() {
               Compare to parent
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!query.data?.capabilities.contextOnly}
-            title={query.data?.capabilities.reason}
-            onClick={() => ui.set({ modal: 'fork' })}
-          >
-            <GitBranch size={13} />
-            Fork
-          </Button>
         </div>
         <div className="trajectory-meta">
           <span className="model-dot" />
           <span>{shortModel(t.model)}</span>
           <i />
           <span
-            title={`${query.data?.eventCounts?.recorded ?? t.eventCount} recorded events; ${query.data?.eventCounts?.runtime ?? '—'} runtime; ${query.data?.eventCounts?.opaque ?? '—'} opaque reasoning records`}
+            title={`${recorded} recorded events; ${query.data.eventCounts?.runtime ?? '—'} runtime; ${query.data.eventCounts?.opaque ?? '—'} opaque reasoning records`}
           >
-            {number(query.data?.eventCounts?.research ?? t.eventCount)} research
+            {number(query.data.eventCounts?.research ?? t.eventCount)} research
             events
           </span>
           <i />
@@ -178,9 +169,9 @@ export function TrajectoryView() {
           <span className="green-dot" />
           Original log preserved
         </span>
-        <span>
+        <span title="Canonical event indexes are zero-based and count every recorded event">
           Event #{ui.selectedIndex}{' '}
-          <span className="muted">of {t.eventCount - 1}</span>
+          <span className="muted">· {recorded.toLocaleString()} recorded events</span>
         </span>
       </div>
     </section>

@@ -3,18 +3,12 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
   ChevronRight,
-  Command,
-  FlaskConical,
-  GitBranch,
   HelpCircle,
   LoaderCircle,
-  Moon,
-  Orbit,
-  Search,
-  Sun,
   X,
 } from 'lucide-react'
 import { Welcome } from '@/features/workspace/Welcome'
+import { TopBar } from '@/features/workspace/TopBar'
 import { Sidebar } from '@/features/workspace/Sidebar'
 import { WorkspaceDialogs } from '@/features/workspace/Dialogs'
 import { TrajectoryView } from '@/components/trajectory/TrajectoryView'
@@ -26,7 +20,6 @@ import { ForkDialog, ForkWorkspace } from '@/features/forks/ForkLab'
 import { ComparisonWorkspace } from '@/features/comparisons/ComparisonWorkspace'
 import { TrajectoryBrowser } from '@/features/trajectories/TrajectoryBrowser'
 import { EvidenceDialog } from '@/components/classifier/EvidenceDialog'
-import { Button } from '@/components/ui/button'
 import { ErrorState } from '@/components/common/Primitives'
 import {
   useJobs,
@@ -58,9 +51,13 @@ export function App() {
         .catch((error: Error) => notify(error.message))
   }, [ui.workspaceId, client])
   useEffect(() => {
-    if (!ui.trajectoryId && trajectories.data?.items[0])
-      ui.selectTrajectory(trajectories.data.items[0].id)
-  }, [ui.trajectoryId, trajectories.data])
+    const items = trajectories.data?.items
+    if (ui.trajectoryId || !items?.length || !workspaces.data) return
+    const featured = items.find((t) => t.id === workspace?.featuredTrajectoryId)
+    ui.selectTrajectory(
+      (featured ?? items.find((t) => !t.parentTrajectoryId) ?? items[0]).id,
+    )
+  }, [ui.trajectoryId, trajectories.data, workspaces.data])
   useEffect(() => {
     const signature =
       jobs.data?.map((j) => `${j.id}:${j.status}:${j.completed}`).join('|') ||
@@ -147,63 +144,7 @@ export function App() {
           <Welcome />
         ) : (
           <>
-            <header className="topbar">
-              <button className="brand" onClick={() => ui.setWorkspace(null)}>
-                <span className="brand-icon">
-                  <Orbit size={21} />
-                </span>
-                TraceLab
-              </button>
-              <span className="topbar-divider" />
-              <span className="topbar-context">
-                {workspace?.name || 'Workspace'}
-                <ChevronRight size={12} />
-                <strong>
-                  {ui.section === 'trajectory'
-                    ? 'Explorer'
-                    : ui.section === 'classifiers'
-                      ? 'Analysis'
-                      : ui.section[0].toUpperCase() + ui.section.slice(1)}
-                </strong>
-              </span>
-              <div className="topbar-spacer" />
-              <button
-                className="global-search"
-                onClick={() => ui.set({ modal: 'search' })}
-              >
-                <Search size={13} />
-                <span>Search trajectories…</span>
-                <kbd>⌘ K</kbd>
-              </button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => ui.set({ section: 'classifiers' })}
-              >
-                <FlaskConical size={14} />
-                Analyse
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={!selectedTrajectory.data?.capabilities.contextOnly}
-                title={selectedTrajectory.data?.capabilities.reason}
-                onClick={() => ui.set({ modal: 'fork' })}
-              >
-                <GitBranch size={14} />
-                Fork
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Toggle theme"
-                onClick={() =>
-                  ui.set({ theme: ui.theme === 'dark' ? 'light' : 'dark' })
-                }
-              >
-                {ui.theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
-              </Button>
-            </header>
+            <TopBar />
             <div className="workspace-shell">
               <Sidebar />
               <main className="main-shell">
@@ -252,16 +193,14 @@ export function App() {
                   <Activity size={11} />
                 )}{' '}
                 {active.length
-                  ? `${active.length} active jobs · ${active[0].completed}/${active[0].total || '…'} ${active[0].name}`
+                  ? `${active.length} active job${active.length === 1 ? '' : 's'} · ${active[0].completed}/${active[0].total || '…'} ${active[0].name}`
                   : 'No running jobs'}
               </button>
               <div className="topbar-spacer" />
               <span>Inspect AI</span>
-              <button onClick={() => ui.set({ modal: 'commands' })}>
-                <Command size={10} /> K <span>Commands</span>
-              </button>
               <button
-                title="Keyboard shortcuts: Cmd/Ctrl+O open, Cmd/Ctrl+K commands, / search, J/K events, A annotate, F fork"
+                title="Keyboard shortcuts: Cmd/Ctrl+O add source, Cmd/Ctrl+K commands, / search, J/K next/previous event, A annotate, F fork"
+                aria-label="Keyboard shortcuts and commands"
                 onClick={() => ui.set({ modal: 'commands' })}
               >
                 <HelpCircle size={12} />

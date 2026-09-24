@@ -12,10 +12,11 @@ import {
   SplitSquareHorizontal,
 } from 'lucide-react'
 import { useExperiments, useTrajectories, useWorkspaces } from '@/hooks/queries'
-import { useUI } from '@/stores/ui'
+import { outlineSections, useUI } from '@/stores/ui'
 import { Status } from '@/components/common/Primitives'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import type { Trajectory } from '@/types/domain'
 export function Sidebar() {
   const ui = useUI()
   const workspaces = useWorkspaces()
@@ -67,42 +68,43 @@ export function Sidebar() {
         </Button>
       </div>
       <div className="experiment-tree">
-        {experiments.data?.map((experiment) => (
-          <div key={experiment.id}>
-            <div className="experiment-label" title={experiment.sourcePath}>
-              <ChevronDown size={12} />
-              <FolderOpen size={14} />
-              <span>
-                {experiment.name.replace('Session authentication · ', '')}
-              </span>
-              <span className="tree-count">
-                {experiment.trajectoryCount ?? 0}
-              </span>
-            </div>
-            {trajectories.data?.items
-              .filter(
-                (t) =>
-                  t.experimentId === experiment.id && !t.parentTrajectoryId,
-              )
-              .map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => ui.selectTrajectory(t.id)}
-                  className={cn(
-                    'trajectory-link',
-                    ui.trajectoryId === t.id && 'selected',
-                  )}
+        {experiments.data?.map((experiment) => {
+          const items =
+            trajectories.data?.items.filter(
+              (t) => t.experimentId === experiment.id,
+            ) ?? []
+          const branches = items.filter((t) => t.parentTrajectoryId).length
+          const runs = (experiment.trajectoryCount ?? 0) - branches
+          return (
+            <div key={experiment.id}>
+              <div className="experiment-label" title={experiment.sourcePath}>
+                <ChevronDown size={12} />
+                <FolderOpen size={14} />
+                <span>
+                  {experiment.name.replace('Session authentication · ', '')}
+                </span>
+                <span
+                  className="tree-count"
+                  title={`${runs} runs${branches ? ` · ${branches} fork branches` : ''}`}
                 >
-                  <span className="tree-elbow" />
-                  <Status status={t.status} small />
-                  <span>sample_{t.sampleId}</span>
-                  <span className="tree-count">
-                    {t.loaded ? t.eventCount : '…'}
-                  </span>
-                </button>
-              ))}
-          </div>
-        ))}
+                  {runs}
+                </span>
+              </div>
+              {items
+                .filter((t) => !t.parentTrajectoryId)
+                .map((t) => (
+                  <div key={t.id}>
+                    <TrajectoryLink trajectory={t} />
+                    {items
+                      .filter((c) => c.parentTrajectoryId === t.id)
+                      .map((c) => (
+                        <TrajectoryLink key={c.id} trajectory={c} branch />
+                      ))}
+                  </div>
+                ))}
+            </div>
+          )
+        })}
       </div>
       <button
         className="browse-all"
@@ -112,7 +114,16 @@ export function Sidebar() {
         Browse & filter all trajectories
         <span>{trajectories.data?.total || 0}</span>
       </button>
-      {ui.trajectoryId && <RunOutline />}
+      {ui.trajectoryId && (
+        // Hidden rather than unmounted so its local state survives a visit elsewhere.
+        <div
+          className="run-outline-slot"
+          hidden={!outlineSections.includes(ui.section)}
+          data-testid="run-outline-slot"
+        >
+          <RunOutline />
+        </div>
+      )}
       <div className="sidebar-footer">
         <span className="local-indicator">
           <i />
@@ -128,5 +139,43 @@ export function Sidebar() {
         </Button>
       </div>
     </aside>
+  )
+}
+function TrajectoryLink({
+  trajectory: t,
+  branch = false,
+}: {
+  trajectory: Trajectory
+  branch?: boolean
+}) {
+  const ui = useUI()
+  return (
+    <button
+      onClick={() => ui.selectTrajectory(t.id)}
+      className={cn(
+        'trajectory-link',
+        branch && 'trajectory-branch',
+        ui.trajectoryId === t.id && 'selected',
+      )}
+      aria-current={ui.trajectoryId === t.id ? 'true' : undefined}
+    >
+      <span className="tree-elbow" />
+      {branch ? (
+        <GitBranch size={11} aria-label="Fork branch" />
+      ) : (
+        <Status status={t.status} small />
+      )}
+      <span>
+        {branch
+          ? t.sampleId.replace(/^.* \/ /, '')
+          : `sample_${t.sampleId}`}
+      </span>
+      <span
+        className="tree-count"
+        title={t.loaded ? `${t.eventCount} recorded events` : 'Not indexed yet'}
+      >
+        {t.loaded ? t.eventCount : '…'}
+      </span>
+    </button>
   )
 }

@@ -210,3 +210,49 @@ async def test_failed_fork_keeps_parent_and_exposes_error(service, event_factory
     assert service.db.get("jobs", job["id"])["status"] == "failed"
     assert service.db.list("forks")[0]["status"] == "failed"
     assert service.db.get("events", "t:e0")
+
+
+async def test_fork_preview_matches_run_reconstruction_without_secrets(
+    service, tmp_path, monkeypatch
+):
+    from tracelab.ingestion.service import import_logs
+    from tracelab.inspect_adapter.demo import demo_log
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-preview-secret-value")
+    source = tmp_path / "source.eval"
+    demo_log(source, "baseline", [83])
+    workspace = Workspace(name="preview")
+    service.db.put("workspaces", workspace)
+    await import_logs(service, Job(kind="import", name="import"), workspace.id, str(source))
+    [trajectory] = service.db.list("trajectories")
+    tid = trajectory["id"]
+    request = {
+        "sourceTrajectoryId": tid,
+        "sourceEventId": f"{tid}:e2",
+        "interventions": [
+            {"type": "replace_content", "eventId": f"{tid}:e2", "content": "edited reasoning"}
+        ],
+        "modelOverrides": {
+            "provider": "openai",
+            "model": "gpt-test",
+            "parameters": {"temperature": 0.2, "max_tokens": 64, "seed": 7},
+        },
+        "replicationCount": 3,
+    }
+    preview = await service.dispatch("forks.preview", request)
+    assert preview["sourceEventIndex"] == 2
+    assert preview["model"] == "gpt-test" and preview["replicationCount"] == 3
+    assert preview["parameters"] == {"temperature": 0.2, "max_tokens": 64, "seed": 7}
+    assert preview["seedIncrementsByReplication"]
+    assert preview["messages"][-1]["content"] == [
+        {"type": "reasoning", "reasoning": "edited reasoning"}
+    ]
+    assert preview["provider"]["apiKeyEnv"] == "OPENAI_API_KEY"
+    assert "sk-preview-secret-value" not in __import__("json").dumps(preview)
+    fork = Fork.model_validate(request)
+    *_, messages, _, _ = await service.forks.prepare(fork)
+    assert messages == preview["messages"]
+    assert not service.db.list("forks")  # Preview never persists or executes.
+    request["modelOverrides"]["parameters"] = {"logit_bias": {}}
+    with pytest.raises(ValueError, match="Unsupported fork generation parameter"):
+        await service.dispatch("forks.preview", request)

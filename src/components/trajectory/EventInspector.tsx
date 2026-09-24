@@ -16,7 +16,6 @@ import {
   FlaskConical,
   GitBranch,
   Info,
-  Plus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useUI, notify } from '@/stores/ui'
@@ -94,7 +93,6 @@ export function EventInspector() {
         ))}
       </div>
       <div className="inspector-content">
-        <AnalysisStack />
         {query.isLoading && <Loading text="Loading event…" />}
         {query.error && <ErrorState error={query.error} />}
         {!id && <Empty title="No event selected" />}
@@ -215,10 +213,7 @@ export function EventInspector() {
               <div className="inline-error">{event.tool.error}</div>
             )}
             <div className="inspector-separator" />
-            <SignalList
-              results={data?.results || []}
-              names={new Map(classifiers.data?.map((c) => [c.id, c.name]))}
-            />
+            <AnalysisStack />
             <details className="raw-details">
               <summary>Event metadata</summary>
               <pre>{json(event.metadata)}</pre>
@@ -260,6 +255,7 @@ export function EventInspector() {
         )}
         {tab === 'signals' && (
           <>
+            <AnalysisStack />
             <SignalList
               results={data?.results || []}
               names={new Map(classifiers.data?.map((c) => [c.id, c.name]))}
@@ -273,30 +269,20 @@ export function EventInspector() {
             </div>
             <Button
               variant="outline"
-              onClick={() => ui.set({ section: 'classifiers' })}
+              onClick={() => ui.openAnalysis('signals/semantic')}
             >
-              <Plus size={13} />
-              Add a classifier
+              <FlaskConical size={13} />
+              Configure detectors
             </Button>
           </>
         )}
         {tab === 'notes' && (
           <>
-            <div className="detail-heading">
-              MANUAL ANNOTATIONS
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Annotate event"
-                onClick={() => ui.set({ modal: 'annotate' })}
-              >
-                <Plus size={13} />
-              </Button>
-            </div>
+            <div className="detail-heading">MANUAL ANNOTATIONS</div>
             {annotations.length === 0 ? (
               <p className="muted">
-                No annotations at this event. Mark a finding or a range to
-                revisit.
+                No annotations at this event. Use Annotate below to mark a
+                finding or a range to revisit.
               </p>
             ) : (
               annotations.map((a) => (
@@ -312,14 +298,6 @@ export function EventInspector() {
                 </div>
               ))
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => ui.set({ modal: 'annotate' })}
-            >
-              <Flag size={13} />
-              Annotate
-            </Button>
           </>
         )}
       </div>
@@ -334,22 +312,18 @@ export function EventInspector() {
             Annotate
           </Button>
           <Button
-            variant="ghost"
-            size="icon"
-            title="Run a classifier here"
-            onClick={() => ui.set({ section: 'classifiers' })}
-          >
-            <FlaskConical size={14} />
-          </Button>
-          <Button
             variant="secondary"
             size="sm"
             disabled={!trajectory.data?.capabilities.contextOnly}
-            title={trajectory.data?.capabilities.reason}
+            title={
+              trajectory.data?.capabilities.contextOnly
+                ? `Fork a context-only branch from event #${ui.selectedIndex} (F)`
+                : trajectory.data?.capabilities.reason
+            }
             onClick={() => ui.set({ modal: 'fork' })}
           >
             <GitBranch size={13} />
-            Fork here
+            Fork from #{ui.selectedIndex}
           </Button>
         </div>
       )}

@@ -1,8 +1,31 @@
 # Validation record
 
-This records executable checks, not scientific results. Synthetic/provider-double outputs are not promoted to research evidence. Updated 2026-09-24 for semantic presentation, filtered navigation and concurrent desktop IPC.
+This records executable checks, not scientific results. Synthetic/provider-double outputs are not promoted to research evidence. Updated 2026-09-24 for the focused UX pass; the earlier semantic presentation, filtered navigation and concurrent desktop IPC record follows unchanged.
 
-## Local commands and results
+## UX pass (2026-09-24)
+
+| Command | Observed result |
+| --- | --- |
+| `pnpm test` | 40 passed in 10 files |
+| `pnpm build` | TypeScript and Vite passed. The main chunk grew from 490.07 kB to 525.04 kB before gzip (161.58 kB gzip) and now also exceeds the >500 kB advisory; the ECharts chunk is unchanged at 556.60 kB |
+| `uv run --project backend pytest tests -q` | 129 passed, 3 skipped (opt-in public corpus reads) |
+| `uv run --project backend ruff check backend tests scripts` | All checks passed |
+| `uv run --project backend ruff format --check backend tests scripts` | 94 files already formatted |
+| `pnpm audit --audit-level moderate` | No known vulnerabilities found |
+| `uv run --project backend python scripts/smoke_bundle.py backend/.venv/bin/tracelab-backend` | Passed against the development entry point (6 runs, 2 fork branches, populated restart, no model calls). Not a packaged-app run |
+| `cargo check --locked --manifest-path src-tauri/Cargo.toml` | Passed |
+| `python3 scripts/check_repository.py` | 243 indexed files, 0 findings |
+| `git diff --cached --check` | Passed |
+
+No Rust or Tauri files changed; `cargo test` and `cargo fmt --check` were not rerun. Hosted CI was not observed for this change.
+
+Frontend tests cover the five-section Analysis navigation, the Overview hiding raw measurements by default, derivation wording without probability language, one-moment-per-lane prioritization, hidden empty inspector channels, per-lane window collapsing, the fork dialog targeting and prefilling the selected event, generation-parameter serialization and rejection, line diffs, search/command shortcut labels, command-palette navigation (go to event, switch workspace, out-of-range rejection) and Run Outline visibility by section. Backend tests cover the sample's matched pair, rule/statistical signals, synthetic fork (runner storage, no provider, no Inspect log, unscored branches), branch comparison, completed jobs, and `forks.preview` matching the run reconstruction without exposing credential values or persisting a fork.
+
+Manual walkthrough in the browser development build at 1280×800, dark and light themes, on a fresh data directory: Welcome, opening the sample (about 9 s), Explorer, Analysis Overview/Signals/Compare/Internals/Notes, the fork dialog with a replacement diff and preview, Fork Lab, Comparisons (suggested pairs and preselected conditions) and the command palette. A copy of the isolated `budget_siphon_H` acceptance database was reopened: 309 recorded / 221 research / 88 runtime / 14 opaque events, initial selection #2, #70 shown as redacted reasoning with raw payload lazy, Reasoning keeps #70 and Runtime shows the nearest #69 notice. The original acceptance database was not modified.
+
+## Earlier record: semantic presentation and concurrent IPC
+
+### Local commands and results
 
 | Command | Observed result |
 | --- | --- |

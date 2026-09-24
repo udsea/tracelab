@@ -61,6 +61,13 @@ export function ContrastiveSignals({
     b = useOverview(right),
     sa = useSignals(left),
     sb = useSignals(right)
+  // Lane IDs are stable keys; show the detector name a researcher recognises.
+  const names = new Map(
+    [...(sa.data ?? []), ...(sb.data ?? [])].map((s) => [
+      String(s.metadata.laneId ?? s.name),
+      s.sourceType === 'statistical' ? `Statistics · ${s.name}` : s.name,
+    ]),
+  )
   return (
     <section className="contrastive-signals">
       <h3>Observed branch comparison</h3>
@@ -142,7 +149,7 @@ export function ContrastiveSignals({
                   <tbody>
                     {Object.entries(query.data![field]).map(([k, v]) => (
                       <tr key={k}>
-                        <td>{k}</td>
+                        <td title={k}>{names.get(k) ?? k}</td>
                         <td>{v.control.toFixed(2)}</td>
                         <td>{v.treatment.toFixed(2)}</td>
                         <td>{v.delta.toFixed(2)}</td>

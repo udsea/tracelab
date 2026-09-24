@@ -12,7 +12,7 @@ uv sync --project backend --frozen
 pnpm dev
 ```
 
-Open **http://127.0.0.1:1420**. Choose **Explore a sample workspace** for six explicitly synthetic, 487-event trajectories in genuine Inspect `.eval` files. No model calls are made on startup or when opening the sample.
+Open **http://127.0.0.1:1420**. Choose **Explore a sample workspace** for six explicitly synthetic, 487-event trajectories in genuine Inspect `.eval` files: two conditions (baseline and task briefing) that share sample IDs, authored LLM-detector fixture curves, deterministic rule/statistical detector results, an annotation, a matched-condition comparison and one synthetic context-only fork with two branches. The fork's continuations are authored fixture text stored through the real fork runner; no provider is contacted. No model calls are made on startup or when opening the sample.
 
 If pnpm is not installed, commands can be prefixed with `npm exec --yes --package=pnpm@10.30.3 --` (for example, `npm exec --yes --package=pnpm@10.30.3 -- pnpm dev`).
 

@@ -16,6 +16,7 @@ import {
   type Scale,
 } from '@/features/analysis/coordinates'
 import { ExecutionGraph } from '@/features/analysis/ExecutionGraph'
+import { ChevronDown } from 'lucide-react'
 echarts.use([
   CustomChart,
   ScatterChart,
@@ -41,6 +42,24 @@ export function Timeline() {
     chart = useRef<echarts.ECharts | null>(null)
   const [showRuntime, setShowRuntime] = useState(false)
   const [menu, setMenu] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!menu) return
+    const close = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenu(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setMenu(false)
+      menuRef.current?.querySelector('button')?.focus()
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [menu])
   const [expanded, setExpanded] = useState(false)
   const latest = useRef({
     coords: coordinateMap([], 'events'),
@@ -333,6 +352,17 @@ export function Timeline() {
     height,
     showRuntime,
   ])
+  function zoomAroundSelection() {
+    const width = Math.max(
+      10,
+      ((ui.range?.end ?? points.length - 1) - (ui.range?.start ?? 0)) / 2,
+    )
+    ui.focus(
+      Math.max(0, Math.floor(ui.selectedIndex - width / 2)),
+      Math.min(points.length - 1, Math.ceil(ui.selectedIndex + width / 2)),
+      'Zoom around selection',
+    )
+  }
   if (!ui.trajectoryId) return null
   return (
     <section
@@ -344,7 +374,7 @@ export function Timeline() {
           Overview · {overview.data?.eventCounts.research ?? points.length}{' '}
           research events
         </strong>
-        <div>
+        <div className="timeline-controls">
           <select
             aria-label="Timeline scale"
             value={ui.scale}
@@ -354,53 +384,92 @@ export function Timeline() {
             <option value="time">Elapsed time</option>
             <option value="calls">Model calls</option>
           </select>
-          <button
-            onClick={() => ui.backRange()}
-            disabled={!ui.rangeHistory.length}
-          >
-            Previous range
-          </button>
+          {ui.rangeHistory.length > 0 && (
+            <button onClick={() => ui.backRange()}>Previous range</button>
+          )}
           <button
             onClick={() =>
               ui.focus(0, Math.max(0, points.length - 1), 'Full run')
             }
+            title="Show the full run"
           >
             Reset
           </button>
-          <button
-            onClick={() => {
-              const width = Math.max(
-                10,
-                ((ui.range?.end ?? points.length - 1) -
-                  (ui.range?.start ?? 0)) /
-                  2,
-              )
-              ui.focus(
-                Math.max(0, Math.floor(ui.selectedIndex - width / 2)),
-                Math.min(
-                  points.length - 1,
-                  Math.ceil(ui.selectedIndex + width / 2),
-                ),
-                'Zoom around selection',
-              )
-            }}
-          >
-            Zoom in
-          </button>
-          <button onClick={() => setMenu(!menu)}>Lanes</button>
-          <button onClick={() => setExpanded(!expanded)}>
-            {expanded ? 'Collapse' : 'Expand'}
-          </button>
-          <button
-            onClick={() =>
-              ui.set({
-                hiddenLanes: [...new Set([...ui.hiddenLanes, ...activities])],
-              })
-            }
-          >
-            Signals only
-          </button>
-          <button onClick={() => ui.set({ hiddenLanes: [] })}>All lanes</button>
+          <div className="view-menu" ref={menuRef}>
+            <button
+              aria-haspopup="true"
+              aria-expanded={menu}
+              aria-controls="timeline-view-menu"
+              onClick={() => setMenu(!menu)}
+            >
+              View
+              <ChevronDown size={11} aria-hidden />
+            </button>
+            {menu && (
+              <div
+                id="timeline-view-menu"
+                className="view-menu-popover"
+                role="group"
+                aria-label="Timeline view options"
+              >
+                <div className="view-menu-actions">
+                  <button onClick={zoomAroundSelection}>
+                    Zoom around #{ui.selectedIndex}
+                  </button>
+                  <button onClick={() => setExpanded(!expanded)}>
+                    {expanded ? 'Collapse panel' : 'Expand panel'}
+                  </button>
+                  <button
+                    onClick={() =>
+                      ui.set({
+                        hiddenLanes: [
+                          ...new Set([...ui.hiddenLanes, ...activities]),
+                        ],
+                      })
+                    }
+                  >
+                    Signals only
+                  </button>
+                  <button onClick={() => ui.set({ hiddenLanes: [] })}>
+                    All lanes
+                  </button>
+                </div>
+                <label className="view-menu-check">
+                  <input
+                    type="checkbox"
+                    checked={showRuntime}
+                    onChange={(e) => setShowRuntime(e.target.checked)}
+                  />
+                  Include runtime events
+                </label>
+                <fieldset>
+                  <legend>Lanes</legend>
+                  {[...availableActivities, ...signalLanes].map((l) => (
+                    <label key={l} className="view-menu-check">
+                      <input
+                        type="checkbox"
+                        checked={!ui.hiddenLanes.includes(l)}
+                        onChange={() =>
+                          ui.set({
+                            hiddenLanes: ui.hiddenLanes.includes(l)
+                              ? ui.hiddenLanes.filter((x) => x !== l)
+                              : [...ui.hiddenLanes, l],
+                          })
+                        }
+                      />
+                      {signals.data?.find(
+                        (s) => String(s.metadata.laneId ?? s.name) === l,
+                      )?.name ?? l}
+                    </label>
+                  ))}
+                </fieldset>
+                <p className="muted small" id="timeline-gestures">
+                  Ctrl + scroll zooms the chart, drag pans it, and clicking a
+                  mark selects its event.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       {ui.scale === 'time' && coords.hasGutter && (
@@ -414,41 +483,16 @@ export function Timeline() {
           {overview.data?.coordinates.modelCallFidelity}
         </p>
       )}
-      {menu && (
-        <div className="analysis-lane-menu">
-          <label>
-            <input
-              type="checkbox"
-              checked={showRuntime}
-              onChange={(e) => setShowRuntime(e.target.checked)}
-            />
-            Include runtime events
-          </label>
-          {[...activities, ...signalLanes].map((l) => (
-            <label key={l}>
-              <input
-                type="checkbox"
-                checked={!ui.hiddenLanes.includes(l)}
-                onChange={() =>
-                  ui.set({
-                    hiddenLanes: ui.hiddenLanes.includes(l)
-                      ? ui.hiddenLanes.filter((x) => x !== l)
-                      : [...ui.hiddenLanes, l],
-                  })
-                }
-              />
-              {signals.data?.find(
-                (s) => String(s.metadata.laneId ?? s.name) === l,
-              )?.name ?? l}
-            </label>
-          ))}
-        </div>
-      )}
       {overview.error && (
         <p className="inline-error">{overview.error.message}</p>
       )}
       <div className="timeline-scroll">
-        <div ref={ref} style={{ height }} />
+        <div
+          ref={ref}
+          style={{ height }}
+          role="img"
+          aria-label="Trajectory timeline. Ctrl + scroll zooms, drag pans, clicking a mark selects its event."
+        />
         {overview.data && <ExecutionGraph overview={overview.data} />}
       </div>
     </section>

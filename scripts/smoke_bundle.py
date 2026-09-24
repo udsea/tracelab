@@ -75,8 +75,11 @@ def main():
             health = rpc("health")
             workspace = rpc("workspaces.demo")
             page = rpc("trajectories.list", {"workspaceId": workspace["id"]})
-            assert page["total"] == 6
-            tid = page["items"][0]["id"]
+            # Six synthetic runs plus the two branches of the sample fork.
+            assert page["total"] == 8
+            roots = [t for t in page["items"] if not t.get("parentTrajectoryId")]
+            assert len(roots) == 6
+            tid = workspace["featuredTrajectoryId"]
             trajectory = rpc("trajectories.get", {"id": tid})
             assert trajectory["capabilities"]["checkpointRestored"] is False
             events = rpc("events.list", {"trajectoryId": tid, "offset": 180, "limit": 10})
@@ -170,7 +173,7 @@ def main():
             assert workspace["id"] in [w["id"] for w in rpc("workspaces.list")]
             assert rpc("analysis.overview", {"trajectoryId": tid}) == overview
             assert len(rpc("analysis.signals", {"trajectoryId": tid})) == len(shared_signals)
-            assert rpc("trajectories.list", {"workspaceId": workspace["id"]})["total"] == 6
+            assert rpc("trajectories.list", {"workspaceId": workspace["id"]})["total"] == 8
             assert rpc("events.get", {"id": evidence["event"]["id"]})["event"] == evidence["event"]
             assert rpc("trajectories.get", {"id": source_tid})["trajectory"]["loaded"]
         print(
@@ -179,6 +182,7 @@ def main():
                     "status": "passed",
                     "inspectVersion": health["inspectVersion"],
                     "trajectories": 6,
+                    "forkBranches": 2,
                     "eventsPerTrajectory": 487,
                     "signals": 98,
                     "evidenceResolved": True,

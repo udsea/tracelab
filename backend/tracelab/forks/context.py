@@ -3,6 +3,20 @@ import json
 
 from tracelab.models.domain import Fork
 
+# Generation settings the context-only continuation passes to Inspect. Anything else is rejected.
+GENERATION_PARAMETERS = frozenset(
+    {
+        "temperature",
+        "max_tokens",
+        "top_p",
+        "top_k",
+        "seed",
+        "reasoning_effort",
+        "reasoning_tokens",
+        "stop_seqs",
+    }
+)
+
 
 def apply_interventions(events: list[dict], fork: Fork):
     """Interventions modify copies. The parent and its raw Inspect records never change."""

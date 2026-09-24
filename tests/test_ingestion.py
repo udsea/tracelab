@@ -56,12 +56,50 @@ async def test_demo_is_labelled_synthetic_and_has_linked_evidence(service):
     trajectories = (await service.dispatch("trajectories.list", {"workspaceId": workspace["id"]}))[
         "items"
     ]
-    assert len(trajectories) == 6
-    assert all(t["eventCount"] == 487 for t in trajectories)
-    timeline = await service.dispatch("timeline", {"trajectoryId": trajectories[0]["id"]})
+    roots = [t for t in trajectories if not t.get("parentTrajectoryId")]
+    branches = [t for t in trajectories if t.get("parentTrajectoryId")]
+    assert len(roots) == 6 and len(branches) == 2
+    assert all(t["eventCount"] == 487 for t in roots)
+    timeline = await service.dispatch("timeline", {"trajectoryId": roots[0]["id"]})
     assert len(timeline["segments"]) == 5
     assert len(timeline["results"]) == 98
     result = await service.dispatch("results.get", {"id": timeline["results"][0]["id"]})
     assert result["provenance"]["synthetic"]
     for id in result["output"]["evidenceEventIds"]:
         assert service.db.get("events", id)
+
+
+async def test_demo_demonstrates_analysis_comparison_and_fork_without_model_calls(service):
+    workspace = await service.dispatch("workspaces.demo", {})
+    featured = service.db.get("trajectories", workspace["featuredTrajectoryId"])
+    assert (featured["condition"], featured["sampleId"]) == ("baseline", "83")
+    # Nothing in the sample is left looking like pending work.
+    jobs = await service.dispatch("jobs.list", {})
+    assert jobs and all(j["status"] == "complete" for j in jobs)
+    # Matched conditions pair by sample ID.
+    matches = await service.dispatch(
+        "analysis.matchCandidates", {"controlId": featured["id"], "field": "sampleId"}
+    )
+    assert [(t["condition"], t["sampleId"]) for t in matches] == [("task briefing", "83")]
+    signals = await service.dispatch("analysis.signals", {"trajectoryId": featured["id"]})
+    kinds = {(s["sourceType"], s["label"]) for s in signals}
+    assert ("rule", "evaluator_related_access") in kinds
+    assert ("rule", "evaluation_language_mention") in kinds
+    assert any(s["sourceType"] == "statistical" for s in signals)
+    assert any(s["sourceType"] == "human" for s in signals)
+    # One finished synthetic fork: real runner storage, authored continuation, no provider.
+    [fork] = await service.dispatch("forks.list", {"workspaceId": workspace["id"]})
+    assert fork["status"] == "complete" and fork["metadata"]["synthetic"]
+    assert fork["metadata"]["executionMode"] == "synthetic_fixture"
+    assert fork["metadata"]["provider"]["id"] == "synthetic"
+    assert not (service.data_dir / "fork-logs").exists()
+    for child_id in fork["childTrajectoryIds"]:
+        child = service.db.get("trajectories", child_id)
+        assert child["status"] == "unknown" and child["metadata"]["synthetic"]
+        assert child["metadata"]["executionMode"] == "synthetic_fixture"
+    pair = await service.dispatch(
+        "compare.pair", {"left": featured["id"], "right": fork["childTrajectoryIds"][0]}
+    )
+    assert pair["interventionIndex"] == 182
+    assert pair["firstBehaviouralDivergence"]
+    assert service.db.list("branch_comparisons")
