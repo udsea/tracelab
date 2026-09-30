@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Local trajectory analysis and intervention workbench for Inspect AI"
 requires-python = ">=3.12"
 dependencies = [
-  "inspect-ai>=0.3.268,<0.4",
+  "inspect-ai>=0.3.271,<0.4",
   "pydantic>=2.10,<3",
   "duckdb>=1.2,<2",
   "httpx>=0.28,<1",
